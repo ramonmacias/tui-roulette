@@ -18,7 +18,7 @@ func TestAddRouletteParticipant(t *testing.T) {
 	}{
 		"it should fail if the roulette already have the participant added": {
 			roulette: func() *main.Roulette {
-				r := main.NewRoulette()
+				r := main.NewRoulette("test-roulette")
 				err := r.AddParticipant(duplicatedParticipant)
 				assert.Nil(t, err)
 				return r
@@ -32,7 +32,7 @@ func TestAddRouletteParticipant(t *testing.T) {
 		},
 		"it should fail if the roulette has already a participant with the same name": {
 			roulette: func() *main.Roulette {
-				r := main.NewRoulette()
+				r := main.NewRoulette("test-roulette")
 				err := r.AddParticipant(duplicatedParticipant)
 				assert.Nil(t, err)
 				return r
@@ -45,7 +45,7 @@ func TestAddRouletteParticipant(t *testing.T) {
 			},
 		},
 		"it should not fail and add the participant if the roulette has no participants added yet": {
-			roulette:    main.NewRoulette(),
+			roulette:    main.NewRoulette("test-roulette"),
 			participant: main.NewParticipant("Carl"),
 			assertParticipants: func(r *main.Roulette) {
 				assert.Len(t, r.Participants(), 1)
@@ -54,7 +54,7 @@ func TestAddRouletteParticipant(t *testing.T) {
 		},
 		"it should not fail and add the participant if the roulette has already some participants": {
 			roulette: func() *main.Roulette {
-				r := main.NewRoulette()
+				r := main.NewRoulette("test-roulette")
 				err := r.AddParticipant(main.NewParticipant("Prime"))
 				assert.Nil(t, err)
 				err = r.AddParticipant(main.NewParticipant("Agen"))
@@ -89,7 +89,7 @@ func TestRemoveRouletteParticipant(t *testing.T) {
 		assertParticipants func(r *main.Roulette)
 	}{
 		"it should fail if the participant is not already added as participant for this roulette": {
-			roulette:    main.NewRoulette(),
+			roulette:    main.NewRoulette("test-roulette"),
 			participant: main.NewParticipant("John"),
 			expectedErr: errors.New("the given participant is not part of the roulette participants list"),
 			assertParticipants: func(r *main.Roulette) {
@@ -98,7 +98,7 @@ func TestRemoveRouletteParticipant(t *testing.T) {
 		},
 		"it should remove the correct participant": {
 			roulette: func() *main.Roulette {
-				r := main.NewRoulette()
+				r := main.NewRoulette("test-roulette")
 				r.AddParticipant(removeParticipantCandidate)
 				return r
 			}(),
@@ -109,7 +109,7 @@ func TestRemoveRouletteParticipant(t *testing.T) {
 		},
 		"it should remove the correct participants when multiple participants in the roulette": {
 			roulette: func() *main.Roulette {
-				r := main.NewRoulette()
+				r := main.NewRoulette("test-roulette")
 				r.AddParticipant(main.NewParticipant("Jose"))
 				r.AddParticipant(main.NewParticipant("Marie"))
 				return r

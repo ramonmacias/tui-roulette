@@ -8,103 +8,399 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+type focusArea int
+
+const (
+	focusRoulettes focusArea = iota
+	focusParticipants
+)
+
+type screenMode int
+
+const (
+	modeBrowse screenMode = iota
+	modeCreateRoulette
+	modeAddParticipant
+)
+
 type model struct {
-	choices  []string         // items on the to-do list
-	cursor   int              // which to-do list item our cursor is pointing at
-	selected map[int]struct{} // which to-do items are selected
+	roulettes           []*Roulette
+	selectedRoulette    int
+	selectedParticipant int
+	focus               focusArea
+	mode                screenMode
+	input               string
+	errorMessage        string
+	infoMessage         string
 }
 
 func initialModel() model {
 	return model{
-		// Our to-do list is a grocery list
-		choices: []string{"Buy carrots", "Buy celery", "Buy kohlrabi"},
-
-		// A map which indicates which choices are selected. We're using
-		// the  map like a mathematical set. The keys refer to the indexes
-		// of the `choices` slice, above.
-		selected: make(map[int]struct{}),
+		roulettes:           []*Roulette{},
+		selectedRoulette:    0,
+		selectedParticipant: 0,
+		focus:               focusRoulettes,
+		mode:                modeCreateRoulette,
+		infoMessage:         "Create your first roulette to get started.",
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	// Just return `nil`, which means "no I/O right now, please."
 	return nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-
-	// Is it a key press?
 	case tea.KeyPressMsg:
+		key := msg.String()
 
-		// Cool, what was the actual key pressed?
-		switch msg.String() {
-
-		// These keys should exit the program.
+		switch key {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		}
 
-		// The "up" and "k" keys move the cursor up
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
+		m.clearMessages()
 
-		// The "down" and "j" keys move the cursor down
-		case "down", "j":
-			if m.cursor < len(m.choices)-1 {
-				m.cursor++
-			}
-
-		// The "enter" key and the space bar toggle the selected state
-		// for the item that the cursor is pointing at.
-		case "enter", "space":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
-			}
+		switch m.mode {
+		case modeCreateRoulette:
+			m = m.updateCreateRoulette(key)
+		case modeAddParticipant:
+			m = m.updateAddParticipant(key)
+		default:
+			m = m.updateBrowse(key)
 		}
 	}
 
-	// Return the updated model to the Bubble Tea runtime for processing.
-	// Note that we're not returning a command.
 	return m, nil
 }
 
 func (m model) View() tea.View {
-	// The header
 	var s strings.Builder
-	s.WriteString("What should we buy at the market?\n\n")
+	s.WriteString("Roulette Manager\n\n")
 
-	// Iterate over our choices
-	for i, choice := range m.choices {
-
-		// Is the cursor pointing at this choice?
-		cursor := " " // no cursor
-		if m.cursor == i {
-			cursor = ">" // cursor!
-		}
-
-		// Is this choice selected?
-		checked := " " // not selected
-		if _, ok := m.selected[i]; ok {
-			checked = "x" // selected!
-		}
-
-		// Render the row
-		fmt.Fprintf(&s, "%s [%s] %s\n", cursor, checked, choice)
+	if m.errorMessage != "" {
+		fmt.Fprintf(&s, "Error: %s\n\n", m.errorMessage)
 	}
 
-	// The footer
-	s.WriteString("\nPress q to quit.\n")
+	if m.infoMessage != "" {
+		fmt.Fprintf(&s, "%s\n\n", m.infoMessage)
+	}
 
-	// Send the UI for rendering
+	s.WriteString(m.renderRoulettes())
+	s.WriteString("\n")
+	s.WriteString(m.renderParticipants())
+	s.WriteString("\n")
+	s.WriteString(m.renderPrompt())
+	s.WriteString("\n")
+	s.WriteString(m.renderHelp())
+
 	v := tea.NewView(s.String())
-	// This is running the full screen
 	v.AltScreen = true
 	return v
+}
+
+func (m *model) clearMessages() {
+	m.errorMessage = ""
+	m.infoMessage = ""
+}
+
+func (m model) currentRoulette() *Roulette {
+	if len(m.roulettes) == 0 || m.selectedRoulette < 0 || m.selectedRoulette >= len(m.roulettes) {
+		return nil
+	}
+
+	return m.roulettes[m.selectedRoulette]
+}
+
+func (m model) currentParticipant() *Participant {
+	roulette := m.currentRoulette()
+	if roulette == nil || len(roulette.participants) == 0 || m.selectedParticipant < 0 || m.selectedParticipant >= len(roulette.participants) {
+		return nil
+	}
+
+	return &roulette.participants[m.selectedParticipant]
+}
+
+func (m model) updateBrowse(key string) model {
+	switch key {
+	case "n":
+		m.mode = modeCreateRoulette
+		m.input = ""
+		m.infoMessage = "Type a roulette name and press enter."
+	case "a":
+		if m.currentRoulette() == nil {
+			m.errorMessage = "Create a roulette before adding participants."
+			return m
+		}
+
+		m.mode = modeAddParticipant
+		m.input = ""
+		m.focus = focusParticipants
+		m.infoMessage = fmt.Sprintf("Add participants to %s.", m.currentRoulette().Name())
+	case "tab":
+		m.toggleFocus()
+	case "left", "h":
+		m.focus = focusRoulettes
+	case "right", "l":
+		if m.currentRoulette() != nil {
+			m.focus = focusParticipants
+		}
+	case "up", "k":
+		m.moveSelection(-1)
+	case "down", "j":
+		m.moveSelection(1)
+	case "d", "x", "backspace":
+		m.removeCurrentParticipant()
+	}
+
+	return m
+}
+
+func (m model) updateCreateRoulette(key string) model {
+	switch key {
+	case "esc":
+		if len(m.roulettes) > 0 {
+			m.mode = modeBrowse
+			m.input = ""
+		}
+	case "enter":
+		name := strings.TrimSpace(m.input)
+		if name == "" {
+			m.errorMessage = "Roulette name cannot be empty."
+			return m
+		}
+
+		m.roulettes = append(m.roulettes, NewRoulette(name))
+		m.selectedRoulette = len(m.roulettes) - 1
+		m.selectedParticipant = 0
+		m.focus = focusParticipants
+		m.mode = modeAddParticipant
+		m.input = ""
+		m.infoMessage = fmt.Sprintf("Roulette %s created. Add participants and press esc when done.", name)
+	case "backspace":
+		m.input = deleteLastRune(m.input)
+	case "space":
+		m.input += " "
+	default:
+		m.input = appendInput(m.input, key)
+	}
+
+	return m
+}
+
+func (m model) updateAddParticipant(key string) model {
+	roulette := m.currentRoulette()
+	if roulette == nil {
+		m.mode = modeCreateRoulette
+		m.errorMessage = "Create a roulette before adding participants."
+		return m
+	}
+
+	switch key {
+	case "esc":
+		m.mode = modeBrowse
+		m.input = ""
+		m.infoMessage = fmt.Sprintf("Done editing %s.", roulette.Name())
+	case "enter":
+		name := strings.TrimSpace(m.input)
+		if name == "" {
+			m.errorMessage = "Participant name cannot be empty."
+			return m
+		}
+
+		if err := roulette.AddParticipant(NewParticipant(name)); err != nil {
+			m.errorMessage = err.Error()
+			return m
+		}
+
+		m.selectedParticipant = len(roulette.participants) - 1
+		m.input = ""
+		m.focus = focusParticipants
+		m.infoMessage = fmt.Sprintf("Participant %s added to %s. Press enter to add another or esc when done.", name, roulette.Name())
+	case "backspace":
+		m.input = deleteLastRune(m.input)
+	case "space":
+		m.input += " "
+	default:
+		m.input = appendInput(m.input, key)
+	}
+
+	return m
+}
+
+func (m *model) toggleFocus() {
+	if m.focus == focusRoulettes {
+		if m.currentRoulette() != nil {
+			m.focus = focusParticipants
+		}
+		return
+	}
+
+	m.focus = focusRoulettes
+}
+
+func (m *model) moveSelection(step int) {
+	if m.focus == focusParticipants {
+		roulette := m.currentRoulette()
+		if roulette == nil || len(roulette.participants) == 0 {
+			return
+		}
+
+		m.selectedParticipant = clamp(m.selectedParticipant+step, 0, len(roulette.participants)-1)
+		return
+	}
+
+	if len(m.roulettes) == 0 {
+		return
+	}
+
+	m.selectedRoulette = clamp(m.selectedRoulette+step, 0, len(m.roulettes)-1)
+	roulette := m.currentRoulette()
+	if roulette == nil || len(roulette.participants) == 0 {
+		m.selectedParticipant = 0
+		return
+	}
+
+	m.selectedParticipant = clamp(m.selectedParticipant, 0, len(roulette.participants)-1)
+}
+
+func (m *model) removeCurrentParticipant() {
+	if m.focus != focusParticipants {
+		m.errorMessage = "Switch to the participants panel to remove someone."
+		return
+	}
+
+	roulette := m.currentRoulette()
+	participant := m.currentParticipant()
+	if roulette == nil || participant == nil {
+		m.errorMessage = "Select a participant to remove."
+		return
+	}
+
+	participantName := participant.Name()
+	if err := roulette.RemoveParticipant(NewParticipant(participantName)); err != nil {
+		m.errorMessage = err.Error()
+		return
+	}
+
+	if len(roulette.participants) == 0 {
+		m.selectedParticipant = 0
+	} else {
+		m.selectedParticipant = clamp(m.selectedParticipant, 0, len(roulette.participants)-1)
+	}
+
+	m.infoMessage = fmt.Sprintf("Participant %s removed from %s.", participantName, roulette.Name())
+}
+
+func (m model) renderRoulettes() string {
+	var s strings.Builder
+	s.WriteString("Roulettes\n")
+
+	if len(m.roulettes) == 0 {
+		s.WriteString("  (none yet)\n")
+		return s.String()
+	}
+
+	for index, roulette := range m.roulettes {
+		marker := m.marker(m.focus == focusRoulettes, m.selectedRoulette == index)
+		fmt.Fprintf(&s, "%s %s (%d participants)\n", marker, roulette.Name(), len(roulette.participants))
+	}
+
+	return s.String()
+}
+
+func (m model) renderParticipants() string {
+	var s strings.Builder
+	roulette := m.currentRoulette()
+	if roulette == nil {
+		s.WriteString("Participants\n  Create a roulette to add participants.\n")
+		return s.String()
+	}
+
+	fmt.Fprintf(&s, "Participants for %s\n", roulette.Name())
+	if len(roulette.participants) == 0 {
+		s.WriteString("  (no participants yet)\n")
+		return s.String()
+	}
+
+	for index, participant := range roulette.participants {
+		marker := m.marker(m.focus == focusParticipants, m.selectedParticipant == index)
+		fmt.Fprintf(&s, "%s %s\n", marker, participant.Name())
+	}
+
+	return s.String()
+}
+
+func (m model) renderPrompt() string {
+	switch m.mode {
+	case modeCreateRoulette:
+		return fmt.Sprintf("New roulette name: %s_", m.input)
+	case modeAddParticipant:
+		roulette := m.currentRoulette()
+		if roulette == nil {
+			return "New participant: _"
+		}
+
+		return fmt.Sprintf("Add participant to %s: %s_", roulette.Name(), m.input)
+	default:
+		if m.currentRoulette() == nil {
+			return "Press n to create a roulette."
+		}
+
+		return fmt.Sprintf("Selected roulette: %s", m.currentRoulette().Name())
+	}
+}
+
+func (m model) renderHelp() string {
+	switch m.mode {
+	case modeCreateRoulette:
+		return "enter create roulette • esc cancel • q quit"
+	case modeAddParticipant:
+		return "enter add participant • esc finish • q quit"
+	default:
+		return "n new roulette • a add participant • d remove participant • tab/←/→ switch panel • ↑/↓ move • q quit"
+	}
+}
+
+func (m model) marker(hasFocus bool, isSelected bool) string {
+	if hasFocus && isSelected {
+		return ">"
+	}
+
+	if isSelected {
+		return "*"
+	}
+
+	return " "
+}
+
+func appendInput(current string, key string) string {
+	if len([]rune(key)) == 1 {
+		return current + key
+	}
+
+	return current
+}
+
+func deleteLastRune(value string) string {
+	runes := []rune(value)
+	if len(runes) == 0 {
+		return value
+	}
+
+	return string(runes[:len(runes)-1])
+}
+
+func clamp(value int, minValue int, maxValue int) int {
+	if value < minValue {
+		return minValue
+	}
+
+	if value > maxValue {
+		return maxValue
+	}
+
+	return value
 }
 
 func main() {

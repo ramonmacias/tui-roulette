@@ -10,23 +10,30 @@ import (
 // Roulette stores the participants and winners for a raffle draw.
 type Roulette struct {
 	id           uuid.UUID
+	name         string
 	participants []Participant
 	winners      []Participant
 }
 
 // NewRoulette creates an empty roulette with a generated identifier.
-func NewRoulette() *Roulette {
+func NewRoulette(name string) *Roulette {
 	return &Roulette{
 		id:           uuid.New(),
+		name:         name,
 		participants: []Participant{},
 		winners:      []Participant{},
 	}
 }
 
-var existingParticipant = func(p Participant) func(existing Participant) bool {
+func existingParticipant(p Participant) func(existing Participant) bool {
 	return func(existing Participant) bool {
 		return existing.name == p.name
 	}
+}
+
+// Name returns the roulette display name.
+func (r *Roulette) Name() string {
+	return r.name
 }
 
 // AddParticipant adds a participant to the roulette if no participant with the same name exists yet.
