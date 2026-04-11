@@ -2,24 +2,26 @@ package roulette
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
 
 const (
-	ansiReset      = "\033[0m"
-	ansiBold       = "\033[1m"
-	ansiDim        = "\033[2m"
-	ansiFgBase     = "\033[38;2;241;236;236m"
-	ansiFgMuted    = "\033[38;2;167;160;160m"
-	ansiFgAccent   = "\033[38;2;255;166;77m"
-	ansiFgAccent2  = "\033[38;2;255;214;170m"
-	ansiFgDanger   = "\033[38;2;255;107;107m"
-	ansiFgSuccess  = "\033[38;2;122;214;163m"
-	ansiBgBase     = "\033[48;2;33;30;30m"
-	ansiBgSurface  = "\033[48;2;49;45;45m"
-	ansiBgSurface2 = "\033[48;2;64;59;59m"
+	ansiReset          = "\033[0m"
+	ansiBold           = "\033[1m"
+	ansiDim            = "\033[2m"
+	ansiFgBase         = "\033[38;2;241;236;236m"
+	ansiFgMuted        = "\033[38;2;167;160;160m"
+	ansiFgAccent       = "\033[38;2;255;166;77m"
+	ansiFgAccent2      = "\033[38;2;255;214;170m"
+	ansiFgDanger       = "\033[38;2;255;107;107m"
+	ansiFgSuccess      = "\033[38;2;122;214;163m"
+	ansiBgBase         = "\033[48;2;33;30;30m"
+	ansiBgSurface      = "\033[48;2;49;45;45m"
+	ansiBgSurface2     = "\033[48;2;64;59;59m"
+	minPanelInnerWidth = 60
 )
 
 type focusArea int
@@ -41,6 +43,7 @@ type model struct {
 	roulettes           []*Roulette
 	selectedRoulette    int
 	selectedParticipant int
+	lastWinners         map[int]string
 	focus               focusArea
 	mode                screenMode
 	width               int
@@ -56,6 +59,7 @@ func InitialModel() tea.Model {
 		roulettes:           []*Roulette{},
 		selectedRoulette:    0,
 		selectedParticipant: 0,
+		lastWinners:         map[int]string{},
 		focus:               focusRoulettes,
 		mode:                modeCreateRoulette,
 		infoMessage:         "Create your first roulette to get started.",
@@ -114,6 +118,8 @@ func (m model) View() tea.View {
 	s.WriteString(panel("ROULETTES", m.renderRoulettes()))
 	s.WriteString("\n")
 	s.WriteString(panel("PARTICIPANTS", m.renderParticipants()))
+	s.WriteString("\n")
+	s.WriteString(panel("ROULETTE", m.renderWheel()))
 	s.WriteString("\n")
 	s.WriteString(panel("WINNERS", m.renderWinners()))
 	s.WriteString("\n")
@@ -335,7 +341,125 @@ func (m *model) spinCurrentRoulette() {
 		return
 	}
 
+	m.lastWinners[m.selectedRoulette] = winner.Name()
+
 	m.infoMessage = fmt.Sprintf("🎉 %s won in %s", winner.Name(), r.Name())
+}
+
+func (m model) renderWheel() string {
+	r := m.currentRoulette()
+	if r == nil {
+		return paint("Create a roulette to display the wheel.", ansiFgMuted)
+	}
+
+	participants := r.Participants()
+	n := len(participants)
+
+	const radiusX = 18
+	const radiusY = 9
+
+	type wheelCell struct {
+		inside bool
+		bg     string
+		fg     string
+		ch     rune
+	}
+
+	grid := make([][]wheelCell, 2*radiusY+1)
+	for y := range grid {
+		grid[y] = make([]wheelCell, 2*radiusX+1)
+		for x := range grid[y] {
+			dx := float64(x-radiusX) / float64(radiusX)
+			dy := float64(y-radiusY) / float64(radiusY)
+			d2 := dx*dx + dy*dy
+
+			if d2 <= 1 {
+				grid[y][x].inside = true
+				grid[y][x].ch = ' '
+
+				if n == 0 {
+					if d2 > 0.85 {
+						grid[y][x].ch = '•'
+						grid[y][x].fg = ansiFgMuted
+					}
+					continue
+				}
+
+				angle := math.Atan2(dy, dx)
+				if angle < 0 {
+					angle += 2 * math.Pi
+				}
+
+				idx := int(math.Floor(angle / (2 * math.Pi / float64(n))))
+				if idx >= n {
+					idx = n - 1
+				}
+
+				winner := m.lastWinners[m.selectedRoulette]
+				isWinnerSlice := winner != "" && participants[idx].Name() == winner
+				grid[y][x].bg = participantBgColor(idx, n, isWinnerSlice)
+			}
+		}
+	}
+
+	if n > 0 {
+		for i, p := range participants {
+			label := truncateLabel(p.Name(), 8)
+			theta := (2*math.Pi/float64(n))*float64(i) + (math.Pi / float64(n))
+			lx := radiusX + int(math.Cos(theta)*float64(radiusX)*0.52)
+			ly := radiusY + int(math.Sin(theta)*float64(radiusY)*0.52)
+			startX := lx - len([]rune(label))/2
+
+			for j, ch := range []rune(label) {
+				x := startX + j
+				y := ly
+				if y < 0 || y >= len(grid) || x < 0 || x >= len(grid[y]) {
+					continue
+				}
+				if !grid[y][x].inside {
+					continue
+				}
+
+				grid[y][x].ch = ch
+				grid[y][x].fg = ansiBold + ansiFgBase
+			}
+		}
+	}
+
+	var out strings.Builder
+	for y := 0; y < len(grid); y++ {
+		for x := 0; x < len(grid[y]); x++ {
+			cell := grid[y][x]
+			if !cell.inside {
+				out.WriteString(" ")
+				continue
+			}
+
+			if n == 0 {
+				if cell.ch == '•' {
+					out.WriteString(paint("•", cell.fg))
+				} else {
+					out.WriteString(" ")
+				}
+				continue
+			}
+
+			if cell.ch == ' ' {
+				out.WriteString(paint(" ", cell.bg))
+				continue
+			}
+
+			if cell.fg == "" {
+				cell.fg = ansiFgBase
+			}
+			out.WriteString(paint(string(cell.ch), cell.bg, cell.fg))
+		}
+		if y < len(grid)-1 {
+			out.WriteString("\n")
+		}
+	}
+
+	return centerLines(out.String(), minPanelInnerWidth-2)
 }
 
 func (m model) renderRoulettes() string {
@@ -468,8 +592,7 @@ func panel(title string, body string) string {
 		rows = []string{""}
 	}
 
-	minInnerWidth := 60
-	innerWidth := minInnerWidth
+	innerWidth := minPanelInnerWidth
 	titleCell := " " + title + " "
 	innerWidth = max(innerWidth, visibleWidth(titleCell))
 	for _, row := range rows {
@@ -520,6 +643,28 @@ func centerBlock(content string, width int, height int) string {
 	}
 
 	for i, line := range lines {
+		if leftPad > 0 {
+			out.WriteString(strings.Repeat(" ", leftPad))
+		}
+		out.WriteString(line)
+		if i < len(lines)-1 {
+			out.WriteString("\n")
+		}
+	}
+
+	return out.String()
+}
+
+func centerLines(content string, targetWidth int) string {
+	if targetWidth <= 0 {
+		return content
+	}
+
+	lines := strings.Split(content, "\n")
+	var out strings.Builder
+	for i, line := range lines {
+		lineWidth := visibleWidth(line)
+		leftPad := max(0, (targetWidth-lineWidth)/2)
 		if leftPad > 0 {
 			out.WriteString(strings.Repeat(" ", leftPad))
 		}
@@ -586,4 +731,64 @@ func clamp(value int, minValue int, maxValue int) int {
 	}
 
 	return value
+}
+
+func participantBgColor(index int, total int, bright bool) string {
+	if total <= 0 {
+		return ansiBgSurface
+	}
+
+	h := (360.0 / float64(total)) * float64(index)
+	s := 0.72
+	v := 0.62
+	if bright {
+		v = 0.90
+	}
+
+	r, g, b := hsvToRGB(h, s, v)
+	return fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b)
+}
+
+func hsvToRGB(h float64, s float64, v float64) (int, int, int) {
+	c := v * s
+	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
+	m := v - c
+
+	var rf float64
+	var gf float64
+	var bf float64
+
+	switch {
+	case h < 60:
+		rf, gf, bf = c, x, 0
+	case h < 120:
+		rf, gf, bf = x, c, 0
+	case h < 180:
+		rf, gf, bf = 0, c, x
+	case h < 240:
+		rf, gf, bf = 0, x, c
+	case h < 300:
+		rf, gf, bf = x, 0, c
+	default:
+		rf, gf, bf = c, 0, x
+	}
+
+	r := int(math.Round((rf + m) * 255))
+	g := int(math.Round((gf + m) * 255))
+	b := int(math.Round((bf + m) * 255))
+
+	return r, g, b
+}
+
+func truncateLabel(value string, maxLen int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= maxLen {
+		return string(runes)
+	}
+
+	if maxLen <= 1 {
+		return string(runes[:maxLen])
+	}
+
+	return string(runes[:maxLen-1]) + "…"
 }
