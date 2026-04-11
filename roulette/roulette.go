@@ -2,6 +2,7 @@ package roulette
 
 import (
 	"errors"
+	"math/rand/v2"
 	"slices"
 
 	"github.com/google/uuid"
@@ -60,6 +61,23 @@ func (r *Roulette) RemoveParticipant(p Participant) error {
 // Participants returns the current list of participants in the roulette.
 func (r *Roulette) Participants() []Participant {
 	return r.participants
+}
+
+// Winners returns the current list of participants that won during that roulette spins.
+func (r *Roulette) Winners() []Participant {
+	return r.winners
+}
+
+// Spin randomly selects one participant and records that participant as a winner.
+func (r *Roulette) Spin() (*Participant, error) {
+	if len(r.participants) == 0 {
+		return nil, errors.New("cannot spin roulette without participants")
+	}
+
+	i := rand.IntN(len(r.participants))
+	winner := r.participants[i]
+	r.winners = append(r.winners, winner)
+	return &winner, nil
 }
 
 // Participant represents a person that can be added to a roulette.

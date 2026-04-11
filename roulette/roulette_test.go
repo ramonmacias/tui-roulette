@@ -130,3 +130,54 @@ func TestRemoveRouletteParticipant(t *testing.T) {
 		})
 	}
 }
+
+func TestSpinRoulette(t *testing.T) {
+	testCases := map[string]struct {
+		roulette     *roulette.Roulette
+		expectedErr  error
+		assertWinner func(r *roulette.Roulette, winner *roulette.Participant)
+	}{
+		"it should return an error if no participants are found in the roulette": {
+			roulette:    roulette.NewRoulette("test-roulette"),
+			expectedErr: errors.New("cannot spin roulette without participants"),
+			assertWinner: func(r *roulette.Roulette, winner *roulette.Participant) {
+				assert.Nil(t, winner)
+			},
+		},
+		"it should return the winner if only one participant": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette")
+				r.AddParticipant(roulette.NewParticipant("John"))
+				return r
+			}(),
+			assertWinner: func(r *roulette.Roulette, winner *roulette.Participant) {
+				assert.NotNil(t, winner)
+				assert.Len(t, r.Winners(), 1)
+				assert.Equal(t, "John", winner.Name())
+			},
+		},
+		"it should randomly pick up one participant as a winner and add it into the winners list": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette")
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Prime"))
+				r.AddParticipant(roulette.NewParticipant("TJ"))
+				r.AddParticipant(roulette.NewParticipant("Rodrigo"))
+				return r
+			}(),
+			assertWinner: func(r *roulette.Roulette, winner *roulette.Participant) {
+				assert.NotNil(t, winner)
+				assert.Len(t, r.Winners(), 1)
+				assert.Equal(t, winner.Name(), r.Winners()[0].Name())
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			winner, err := tc.roulette.Spin()
+			assert.Equal(t, tc.expectedErr, err)
+			tc.assertWinner(tc.roulette, winner)
+		})
+	}
+}

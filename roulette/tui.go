@@ -537,11 +537,3 @@ func clamp(value int, minValue int, maxValue int) int {
 
 	return value
 }
-
-func max(a int, b int) int {
-	if a > b {
-		return a
-	}
-
-	return b
-}
