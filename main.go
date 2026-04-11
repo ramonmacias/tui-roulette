@@ -9,6 +9,21 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+const (
+	ansiReset      = "\033[0m"
+	ansiBold       = "\033[1m"
+	ansiDim        = "\033[2m"
+	ansiFgBase     = "\033[38;2;241;236;236m"
+	ansiFgMuted    = "\033[38;2;167;160;160m"
+	ansiFgAccent   = "\033[38;2;255;166;77m"
+	ansiFgAccent2  = "\033[38;2;255;214;170m"
+	ansiFgDanger   = "\033[38;2;255;107;107m"
+	ansiFgSuccess  = "\033[38;2;122;214;163m"
+	ansiBgBase     = "\033[48;2;33;30;30m"
+	ansiBgSurface  = "\033[48;2;49;45;45m"
+	ansiBgSurface2 = "\033[48;2;64;59;59m"
+)
+
 type focusArea int
 
 const (
@@ -30,6 +45,8 @@ type model struct {
 	selectedParticipant int
 	focus               focusArea
 	mode                screenMode
+	width               int
+	height              int
 	input               string
 	errorMessage        string
 	infoMessage         string
@@ -52,6 +69,9 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 	case tea.KeyPressMsg:
 		key := msg.String()
 
@@ -77,25 +97,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() tea.View {
 	var s strings.Builder
-	s.WriteString("Roulette Manager\n\n")
+	s.WriteString(paint(" ROULETTE MANAGER ", ansiBold, ansiBgSurface2, ansiFgAccent))
+	s.WriteString("\n\n")
 
 	if m.errorMessage != "" {
-		fmt.Fprintf(&s, "Error: %s\n\n", m.errorMessage)
+		fmt.Fprintf(&s, "%s %s\n\n", paint("✕", ansiFgDanger, ansiBold), paint(m.errorMessage, ansiFgDanger))
 	}
 
 	if m.infoMessage != "" {
-		fmt.Fprintf(&s, "%s\n\n", m.infoMessage)
+		fmt.Fprintf(&s, "%s %s\n\n", paint("●", ansiFgSuccess, ansiBold), paint(m.infoMessage, ansiFgAccent2))
 	}
 
-	s.WriteString(m.renderRoulettes())
+	s.WriteString(panel("ROULETTES", m.renderRoulettes()))
 	s.WriteString("\n")
-	s.WriteString(m.renderParticipants())
+	s.WriteString(panel("PARTICIPANTS", m.renderParticipants()))
 	s.WriteString("\n")
-	s.WriteString(m.renderPrompt())
+	s.WriteString(panel("INPUT", m.renderPrompt()))
 	s.WriteString("\n")
-	s.WriteString(m.renderHelp())
+	s.WriteString(paint(m.renderHelp(), ansiDim, ansiFgMuted))
 
-	v := tea.NewView(s.String())
+	content := centerBlock(s.String(), m.width, m.height)
+	v := tea.NewView(paint(content, ansiFgBase))
 	v.AltScreen = true
 	return v
 }
@@ -295,16 +317,16 @@ func (m *model) removeCurrentParticipant() {
 
 func (m model) renderRoulettes() string {
 	var s strings.Builder
-	s.WriteString("Roulettes\n")
 
 	if len(m.roulettes) == 0 {
-		s.WriteString("  (none yet)\n")
+		s.WriteString(paint("(none yet)", ansiFgMuted, ansiDim))
+		s.WriteString("\n")
 		return s.String()
 	}
 
 	for index, roulette := range m.roulettes {
 		marker := m.marker(m.focus == focusRoulettes, m.selectedRoulette == index)
-		fmt.Fprintf(&s, "%s %s (%d participants)\n", marker, roulette.Name(), len(roulette.Participants()))
+		fmt.Fprintf(&s, "%s %s %s\n", marker, paint(roulette.Name(), ansiBold), paint(fmt.Sprintf("(%d participants)", len(roulette.Participants())), ansiFgMuted))
 	}
 
 	return s.String()
@@ -314,13 +336,15 @@ func (m model) renderParticipants() string {
 	var s strings.Builder
 	r := m.currentRoulette()
 	if r == nil {
-		s.WriteString("Participants\n  Create a roulette to add participants.\n")
+		s.WriteString(paint("Create a roulette to add participants.", ansiFgMuted))
+		s.WriteString("\n")
 		return s.String()
 	}
 
-	fmt.Fprintf(&s, "Participants for %s\n", r.Name())
+	fmt.Fprintf(&s, "%s %s\n", paint("for", ansiFgMuted), paint(r.Name(), ansiFgAccent2, ansiBold))
 	if len(r.Participants()) == 0 {
-		s.WriteString("  (no participants yet)\n")
+		s.WriteString(paint("(no participants yet)", ansiFgMuted, ansiDim))
+		s.WriteString("\n")
 		return s.String()
 	}
 
@@ -335,20 +359,20 @@ func (m model) renderParticipants() string {
 func (m model) renderPrompt() string {
 	switch m.mode {
 	case modeCreateRoulette:
-		return fmt.Sprintf("New roulette name: %s_", m.input)
+		return fmt.Sprintf("%s %s", paint("New roulette name:", ansiFgAccent), paint(fmt.Sprintf("%s_", m.input), ansiBgSurface, ansiFgBase))
 	case modeAddParticipant:
 		roulette := m.currentRoulette()
 		if roulette == nil {
-			return "New participant: _"
+			return fmt.Sprintf("%s %s", paint("New participant:", ansiFgAccent), paint("_", ansiBgSurface, ansiFgBase))
 		}
 
-		return fmt.Sprintf("Add participant to %s: %s_", roulette.Name(), m.input)
+		return fmt.Sprintf("%s %s %s", paint("Add participant to", ansiFgAccent), paint(roulette.Name(), ansiBold), paint(fmt.Sprintf(": %s_", m.input), ansiBgSurface, ansiFgBase))
 	default:
 		if m.currentRoulette() == nil {
-			return "Press n to create a roulette."
+			return paint("Press n to create a roulette.", ansiFgMuted)
 		}
 
-		return fmt.Sprintf("Selected roulette: %s", m.currentRoulette().Name())
+		return fmt.Sprintf("%s %s", paint("Selected roulette:", ansiFgMuted), paint(m.currentRoulette().Name(), ansiBold, ansiFgAccent2))
 	}
 }
 
@@ -365,14 +389,121 @@ func (m model) renderHelp() string {
 
 func (m model) marker(hasFocus bool, isSelected bool) string {
 	if hasFocus && isSelected {
-		return ">"
+		return paint("◆", ansiFgAccent, ansiBold)
 	}
 
 	if isSelected {
-		return "*"
+		return paint("•", ansiFgAccent2)
 	}
 
-	return " "
+	return paint("·", ansiFgMuted)
+}
+
+func paint(text string, codes ...string) string {
+	if len(codes) == 0 {
+		return text
+	}
+
+	return strings.Join(codes, "") + text + ansiReset
+}
+
+func panel(title string, body string) string {
+	var s strings.Builder
+
+	rows := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+	if len(rows) == 0 {
+		rows = []string{""}
+	}
+
+	minInnerWidth := 60
+	innerWidth := minInnerWidth
+	titleCell := " " + title + " "
+	innerWidth = max(innerWidth, visibleWidth(titleCell))
+	for _, row := range rows {
+		innerWidth = max(innerWidth, visibleWidth(row)+2)
+	}
+
+	header := paint(titleCell, ansiBold, ansiFgAccent, ansiBgSurface)
+	topFill := paint(strings.Repeat("─", max(0, innerWidth-visibleWidth(titleCell))), ansiFgMuted)
+	s.WriteString(paint("╭", ansiFgMuted))
+	s.WriteString(header)
+	s.WriteString(topFill)
+	s.WriteString(paint("╮", ansiFgMuted))
+	s.WriteString("\n")
+
+	for _, row := range rows {
+		padding := max(0, innerWidth-2-visibleWidth(row))
+		s.WriteString(paint("│", ansiFgMuted))
+		s.WriteString(" ")
+		s.WriteString(row)
+		s.WriteString(strings.Repeat(" ", padding))
+		s.WriteString(" ")
+		s.WriteString(paint("│", ansiFgMuted))
+		s.WriteString("\n")
+	}
+
+	s.WriteString(paint("╰"+strings.Repeat("─", innerWidth)+"╯", ansiFgMuted))
+	return s.String()
+}
+
+func centerBlock(content string, width int, height int) string {
+	if width <= 0 || height <= 0 {
+		return content
+	}
+
+	lines := strings.Split(content, "\n")
+	contentHeight := len(lines)
+	contentWidth := 0
+	for _, line := range lines {
+		contentWidth = max(contentWidth, visibleWidth(line))
+	}
+
+	leftPad := max(0, (width-contentWidth)/2)
+	topPad := max(0, (height-contentHeight)/2)
+
+	var out strings.Builder
+	if topPad > 0 {
+		out.WriteString(strings.Repeat("\n", topPad))
+	}
+
+	for i, line := range lines {
+		if leftPad > 0 {
+			out.WriteString(strings.Repeat(" ", leftPad))
+		}
+		out.WriteString(line)
+		if i < len(lines)-1 {
+			out.WriteString("\n")
+		}
+	}
+
+	return out.String()
+}
+
+func visibleWidth(s string) int {
+	width := 0
+	inEscape := false
+
+	for _, r := range s {
+		if inEscape {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEscape = false
+			}
+			continue
+		}
+
+		if r == '\x1b' {
+			inEscape = true
+			continue
+		}
+
+		if r == '\n' || r == '\r' {
+			continue
+		}
+
+		width++
+	}
+
+	return width
 }
 
 func appendInput(current string, key string) string {
