@@ -75,7 +75,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		key := msg.String()
 
 		switch key {
-		case "ctrl+c", "q":
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+
+		if key == "q" && m.mode == modeBrowse {
 			return m, tea.Quit
 		}
 
