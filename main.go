@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"roulette/roulette"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -24,7 +25,7 @@ const (
 )
 
 type model struct {
-	roulettes           []*Roulette
+	roulettes           []*roulette.Roulette
 	selectedRoulette    int
 	selectedParticipant int
 	focus               focusArea
@@ -36,7 +37,7 @@ type model struct {
 
 func initialModel() model {
 	return model{
-		roulettes:           []*Roulette{},
+		roulettes:           []*roulette.Roulette{},
 		selectedRoulette:    0,
 		selectedParticipant: 0,
 		focus:               focusRoulettes,
@@ -104,7 +105,7 @@ func (m *model) clearMessages() {
 	m.infoMessage = ""
 }
 
-func (m model) currentRoulette() *Roulette {
+func (m model) currentRoulette() *roulette.Roulette {
 	if len(m.roulettes) == 0 || m.selectedRoulette < 0 || m.selectedRoulette >= len(m.roulettes) {
 		return nil
 	}
@@ -112,13 +113,13 @@ func (m model) currentRoulette() *Roulette {
 	return m.roulettes[m.selectedRoulette]
 }
 
-func (m model) currentParticipant() *Participant {
+func (m model) currentParticipant() *roulette.Participant {
 	roulette := m.currentRoulette()
-	if roulette == nil || len(roulette.participants) == 0 || m.selectedParticipant < 0 || m.selectedParticipant >= len(roulette.participants) {
+	if roulette == nil || len(roulette.Participants()) == 0 || m.selectedParticipant < 0 || m.selectedParticipant >= len(roulette.Participants()) {
 		return nil
 	}
 
-	return &roulette.participants[m.selectedParticipant]
+	return &roulette.Participants()[m.selectedParticipant]
 }
 
 func (m model) updateBrowse(key string) model {
@@ -170,7 +171,7 @@ func (m model) updateCreateRoulette(key string) model {
 			return m
 		}
 
-		m.roulettes = append(m.roulettes, NewRoulette(name))
+		m.roulettes = append(m.roulettes, roulette.NewRoulette(name))
 		m.selectedRoulette = len(m.roulettes) - 1
 		m.selectedParticipant = 0
 		m.focus = focusParticipants
@@ -189,8 +190,8 @@ func (m model) updateCreateRoulette(key string) model {
 }
 
 func (m model) updateAddParticipant(key string) model {
-	roulette := m.currentRoulette()
-	if roulette == nil {
+	r := m.currentRoulette()
+	if r == nil {
 		m.mode = modeCreateRoulette
 		m.errorMessage = "Create a roulette before adding participants."
 		return m
@@ -200,7 +201,7 @@ func (m model) updateAddParticipant(key string) model {
 	case "esc":
 		m.mode = modeBrowse
 		m.input = ""
-		m.infoMessage = fmt.Sprintf("Done editing %s.", roulette.Name())
+		m.infoMessage = fmt.Sprintf("Done editing %s.", r.Name())
 	case "enter":
 		name := strings.TrimSpace(m.input)
 		if name == "" {
@@ -208,15 +209,15 @@ func (m model) updateAddParticipant(key string) model {
 			return m
 		}
 
-		if err := roulette.AddParticipant(NewParticipant(name)); err != nil {
+		if err := r.AddParticipant(roulette.NewParticipant(name)); err != nil {
 			m.errorMessage = err.Error()
 			return m
 		}
 
-		m.selectedParticipant = len(roulette.participants) - 1
+		m.selectedParticipant = len(r.Participants()) - 1
 		m.input = ""
 		m.focus = focusParticipants
-		m.infoMessage = fmt.Sprintf("Participant %s added to %s. Press enter to add another or esc when done.", name, roulette.Name())
+		m.infoMessage = fmt.Sprintf("Participant %s added to %s. Press enter to add another or esc when done.", name, r.Name())
 	case "backspace":
 		m.input = deleteLastRune(m.input)
 	case "space":
@@ -241,12 +242,12 @@ func (m *model) toggleFocus() {
 
 func (m *model) moveSelection(step int) {
 	if m.focus == focusParticipants {
-		roulette := m.currentRoulette()
-		if roulette == nil || len(roulette.participants) == 0 {
+		r := m.currentRoulette()
+		if r == nil || len(r.Participants()) == 0 {
 			return
 		}
 
-		m.selectedParticipant = clamp(m.selectedParticipant+step, 0, len(roulette.participants)-1)
+		m.selectedParticipant = clamp(m.selectedParticipant+step, 0, len(r.Participants())-1)
 		return
 	}
 
@@ -255,13 +256,13 @@ func (m *model) moveSelection(step int) {
 	}
 
 	m.selectedRoulette = clamp(m.selectedRoulette+step, 0, len(m.roulettes)-1)
-	roulette := m.currentRoulette()
-	if roulette == nil || len(roulette.participants) == 0 {
+	r := m.currentRoulette()
+	if r == nil || len(r.Participants()) == 0 {
 		m.selectedParticipant = 0
 		return
 	}
 
-	m.selectedParticipant = clamp(m.selectedParticipant, 0, len(roulette.participants)-1)
+	m.selectedParticipant = clamp(m.selectedParticipant, 0, len(r.Participants())-1)
 }
 
 func (m *model) removeCurrentParticipant() {
@@ -270,26 +271,26 @@ func (m *model) removeCurrentParticipant() {
 		return
 	}
 
-	roulette := m.currentRoulette()
+	r := m.currentRoulette()
 	participant := m.currentParticipant()
-	if roulette == nil || participant == nil {
+	if r == nil || participant == nil {
 		m.errorMessage = "Select a participant to remove."
 		return
 	}
 
 	participantName := participant.Name()
-	if err := roulette.RemoveParticipant(NewParticipant(participantName)); err != nil {
+	if err := r.RemoveParticipant(roulette.NewParticipant(participantName)); err != nil {
 		m.errorMessage = err.Error()
 		return
 	}
 
-	if len(roulette.participants) == 0 {
+	if len(r.Participants()) == 0 {
 		m.selectedParticipant = 0
 	} else {
-		m.selectedParticipant = clamp(m.selectedParticipant, 0, len(roulette.participants)-1)
+		m.selectedParticipant = clamp(m.selectedParticipant, 0, len(r.Participants())-1)
 	}
 
-	m.infoMessage = fmt.Sprintf("Participant %s removed from %s.", participantName, roulette.Name())
+	m.infoMessage = fmt.Sprintf("Participant %s removed from %s.", participantName, r.Name())
 }
 
 func (m model) renderRoulettes() string {
@@ -303,7 +304,7 @@ func (m model) renderRoulettes() string {
 
 	for index, roulette := range m.roulettes {
 		marker := m.marker(m.focus == focusRoulettes, m.selectedRoulette == index)
-		fmt.Fprintf(&s, "%s %s (%d participants)\n", marker, roulette.Name(), len(roulette.participants))
+		fmt.Fprintf(&s, "%s %s (%d participants)\n", marker, roulette.Name(), len(roulette.Participants()))
 	}
 
 	return s.String()
@@ -311,19 +312,19 @@ func (m model) renderRoulettes() string {
 
 func (m model) renderParticipants() string {
 	var s strings.Builder
-	roulette := m.currentRoulette()
-	if roulette == nil {
+	r := m.currentRoulette()
+	if r == nil {
 		s.WriteString("Participants\n  Create a roulette to add participants.\n")
 		return s.String()
 	}
 
-	fmt.Fprintf(&s, "Participants for %s\n", roulette.Name())
-	if len(roulette.participants) == 0 {
+	fmt.Fprintf(&s, "Participants for %s\n", r.Name())
+	if len(r.Participants()) == 0 {
 		s.WriteString("  (no participants yet)\n")
 		return s.String()
 	}
 
-	for index, participant := range roulette.participants {
+	for index, participant := range r.Participants() {
 		marker := m.marker(m.focus == focusParticipants, m.selectedParticipant == index)
 		fmt.Fprintf(&s, "%s %s\n", marker, participant.Name())
 	}
