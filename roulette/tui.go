@@ -3,7 +3,9 @@ package roulette
 import (
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -44,6 +46,14 @@ type model struct {
 	selectedRoulette    int
 	selectedParticipant int
 	lastWinners         map[int]string
+	spinning            bool
+	spinToken           int
+	spinRouletteIndex   int
+	spinWinnerName      string
+	spinWinnerSlice     int
+	spinCurrentSlice    int
+	spinTotalSteps      int
+	spinStep            int
 	focus               focusArea
 	mode                screenMode
 	width               int
@@ -75,6 +85,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	case spinTickMsg:
+		if !m.spinning || msg.token != m.spinToken {
+			return m, nil
+		}
+
+		return m.advanceSpin()
 	case tea.KeyPressMsg:
 		key := msg.String()
 
@@ -95,7 +111,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeAddParticipant:
 			m = m.updateAddParticipant(key)
 		default:
-			m = m.updateBrowse(key)
+			var cmd tea.Cmd
+			m, cmd = m.updateBrowse(key)
+			return m, cmd
 		}
 	}
 
@@ -155,7 +173,11 @@ func (m model) currentParticipant() *Participant {
 	return &roulette.Participants()[m.selectedParticipant]
 }
 
-func (m model) updateBrowse(key string) model {
+func (m model) updateBrowse(key string) (model, tea.Cmd) {
+	if m.spinning {
+		return m, nil
+	}
+
 	switch key {
 	case "n":
 		m.mode = modeCreateRoulette
@@ -164,7 +186,7 @@ func (m model) updateBrowse(key string) model {
 	case "a":
 		if m.currentRoulette() == nil {
 			m.errorMessage = "Create a roulette before adding participants."
-			return m
+			return m, nil
 		}
 
 		m.mode = modeAddParticipant
@@ -184,12 +206,12 @@ func (m model) updateBrowse(key string) model {
 	case "down", "j":
 		m.moveSelection(1)
 	case "s":
-		m.spinCurrentRoulette()
+		return m.startSpinCurrentRoulette()
 	case "d", "x", "backspace":
 		m.removeCurrentParticipant()
 	}
 
-	return m
+	return m, nil
 }
 
 func (m model) updateCreateRoulette(key string) model {
@@ -328,22 +350,77 @@ func (m *model) removeCurrentParticipant() {
 	m.infoMessage = fmt.Sprintf("Participant %s removed from %s.", participantName, r.Name())
 }
 
-func (m *model) spinCurrentRoulette() {
+func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 	r := m.currentRoulette()
 	if r == nil {
 		m.errorMessage = "Select or create a roulette before spinning."
-		return
+		return m, nil
 	}
 
 	winner, err := r.Spin()
 	if err != nil {
 		m.errorMessage = err.Error()
-		return
+		return m, nil
 	}
 
-	m.lastWinners[m.selectedRoulette] = winner.Name()
+	participants := r.Participants()
+	winnerIndex := -1
+	for i, p := range participants {
+		if p.Name() == winner.Name() {
+			winnerIndex = i
+			break
+		}
+	}
 
-	m.infoMessage = fmt.Sprintf("🎉 %s won in %s", winner.Name(), r.Name())
+	if winnerIndex < 0 {
+		m.errorMessage = "winner not found in participants"
+		return m, nil
+	}
+
+	startIndex := rand.IntN(len(participants))
+	spins := rand.IntN(3) + 3
+	totalSteps := spins*len(participants) + ((winnerIndex - startIndex + len(participants)) % len(participants))
+	if totalSteps == 0 {
+		totalSteps = len(participants)
+	}
+
+	m.spinning = true
+	m.spinToken++
+	m.spinRouletteIndex = m.selectedRoulette
+	m.spinWinnerName = winner.Name()
+	m.spinWinnerSlice = winnerIndex
+	m.spinCurrentSlice = startIndex
+	m.spinTotalSteps = totalSteps
+	m.spinStep = 0
+	m.infoMessage = fmt.Sprintf("Spinning %s...", r.Name())
+
+	return m, spinTickCmd(m.spinToken, spinDelay(0, totalSteps))
+}
+
+func (m model) advanceSpin() (model, tea.Cmd) {
+	if m.spinRouletteIndex < 0 || m.spinRouletteIndex >= len(m.roulettes) {
+		m.spinning = false
+		return m, nil
+	}
+
+	participants := m.roulettes[m.spinRouletteIndex].Participants()
+	if len(participants) == 0 {
+		m.spinning = false
+		return m, nil
+	}
+
+	m.spinCurrentSlice = (m.spinCurrentSlice + 1) % len(participants)
+	m.spinStep++
+
+	if m.spinStep >= m.spinTotalSteps {
+		m.spinning = false
+		m.spinCurrentSlice = m.spinWinnerSlice
+		m.lastWinners[m.spinRouletteIndex] = m.spinWinnerName
+		m.infoMessage = fmt.Sprintf("🎉 %s won in %s", m.spinWinnerName, m.roulettes[m.spinRouletteIndex].Name())
+		return m, nil
+	}
+
+	return m, spinTickCmd(m.spinToken, spinDelay(m.spinStep, m.spinTotalSteps))
 }
 
 func (m model) renderWheel() string {
@@ -397,7 +474,8 @@ func (m model) renderWheel() string {
 
 				winner := m.lastWinners[m.selectedRoulette]
 				isWinnerSlice := winner != "" && participants[idx].Name() == winner
-				grid[y][x].bg = participantBgColor(idx, n, isWinnerSlice)
+				isSpinSlice := m.spinning && m.spinRouletteIndex == m.selectedRoulette && idx == m.spinCurrentSlice
+				grid[y][x].bg = participantBgColor(idx, n, isWinnerSlice || isSpinSlice)
 			}
 		}
 	}
@@ -560,8 +638,35 @@ func (m model) renderHelp() string {
 	case modeAddParticipant:
 		return "enter add participant • esc finish • q quit"
 	default:
+		if m.spinning {
+			return "spinning... please wait • q quit"
+		}
 		return "n new roulette • a add participant • d remove participant • s spin roulette • tab/←/→ switch panel • ↑/↓ move • q quit"
 	}
+}
+
+type spinTickMsg struct {
+	token int
+}
+
+func spinTickCmd(token int, delay time.Duration) tea.Cmd {
+	return tea.Tick(delay, func(time.Time) tea.Msg {
+		return spinTickMsg{token: token}
+	})
+}
+
+func spinDelay(step int, total int) time.Duration {
+	if total <= 1 {
+		return 220 * time.Millisecond
+	}
+
+	const minDelayMs = 30
+	const maxDelayMs = 220
+
+	ratio := float64(step) / float64(total-1)
+	eased := ratio * ratio
+	delayMs := minDelayMs + int(float64(maxDelayMs-minDelayMs)*eased)
+	return time.Duration(delayMs) * time.Millisecond
 }
 
 func (m model) marker(hasFocus bool, isSelected bool) string {
