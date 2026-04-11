@@ -115,6 +115,8 @@ func (m model) View() tea.View {
 	s.WriteString("\n")
 	s.WriteString(panel("PARTICIPANTS", m.renderParticipants()))
 	s.WriteString("\n")
+	s.WriteString(panel("WINNERS", m.renderWinners()))
+	s.WriteString("\n")
 	s.WriteString(panel("INPUT", m.renderPrompt()))
 	s.WriteString("\n")
 	s.WriteString(paint(m.renderHelp(), ansiDim, ansiFgMuted))
@@ -175,6 +177,8 @@ func (m model) updateBrowse(key string) model {
 		m.moveSelection(-1)
 	case "down", "j":
 		m.moveSelection(1)
+	case "s":
+		m.spinCurrentRoulette()
 	case "d", "x", "backspace":
 		m.removeCurrentParticipant()
 	}
@@ -318,6 +322,22 @@ func (m *model) removeCurrentParticipant() {
 	m.infoMessage = fmt.Sprintf("Participant %s removed from %s.", participantName, r.Name())
 }
 
+func (m *model) spinCurrentRoulette() {
+	r := m.currentRoulette()
+	if r == nil {
+		m.errorMessage = "Select or create a roulette before spinning."
+		return
+	}
+
+	winner, err := r.Spin()
+	if err != nil {
+		m.errorMessage = err.Error()
+		return
+	}
+
+	m.infoMessage = fmt.Sprintf("🎉 %s won in %s", winner.Name(), r.Name())
+}
+
 func (m model) renderRoulettes() string {
 	var s strings.Builder
 
@@ -359,6 +379,36 @@ func (m model) renderParticipants() string {
 	return s.String()
 }
 
+func (m model) renderWinners() string {
+	var s strings.Builder
+	r := m.currentRoulette()
+	if r == nil {
+		s.WriteString(paint("Create a roulette, add participants, then spin.", ansiFgMuted))
+		s.WriteString("\n")
+		return s.String()
+	}
+
+	winners := r.Winners()
+	if len(winners) == 0 {
+		s.WriteString(paint("(no winners yet — press s to spin)", ansiFgMuted, ansiDim))
+		s.WriteString("\n")
+		return s.String()
+	}
+
+	for index, winner := range winners {
+		fmt.Fprintf(&s, "%s %s\n", paint("★", ansiFgSuccess), winner.Name())
+		if index >= 4 {
+			remaining := len(winners) - (index + 1)
+			if remaining > 0 {
+				fmt.Fprintf(&s, "%s\n", paint(fmt.Sprintf("... and %d more", remaining), ansiFgMuted, ansiDim))
+			}
+			break
+		}
+	}
+
+	return s.String()
+}
+
 func (m model) renderPrompt() string {
 	switch m.mode {
 	case modeCreateRoulette:
@@ -386,7 +436,7 @@ func (m model) renderHelp() string {
 	case modeAddParticipant:
 		return "enter add participant • esc finish • q quit"
 	default:
-		return "n new roulette • a add participant • d remove participant • tab/←/→ switch panel • ↑/↓ move • q quit"
+		return "n new roulette • a add participant • d remove participant • s spin roulette • tab/←/→ switch panel • ↑/↓ move • q quit"
 	}
 }
 
