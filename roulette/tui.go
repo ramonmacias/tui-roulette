@@ -432,107 +432,92 @@ func (m model) renderWheel() string {
 	participants := r.Participants()
 	n := len(participants)
 
-	const radiusX = 18
-	const radiusY = 9
+	const canvasWidth = 64  // braille sub-pixels (2 per text cell)
+	const canvasHeight = 40 // braille sub-pixels (4 per text row)
 
-	type wheelCell struct {
-		inside bool
-		bg     string
-		fg     string
-		ch     rune
+	type subPixel struct {
+		on    bool
+		color string
 	}
 
-	grid := make([][]wheelCell, 2*radiusY+1)
-	for y := range grid {
-		grid[y] = make([]wheelCell, 2*radiusX+1)
-		for x := range grid[y] {
-			dx := float64(x-radiusX) / float64(radiusX)
-			dy := float64(y-radiusY) / float64(radiusY)
+	canvas := make([][]subPixel, canvasHeight)
+	cx := float64(canvasWidth-1) / 2
+	cy := float64(canvasHeight-1) / 2
+	rx := float64(canvasWidth) * 0.45
+	ry := float64(canvasHeight) * 0.45
+
+	for y := 0; y < canvasHeight; y++ {
+		canvas[y] = make([]subPixel, canvasWidth)
+		for x := 0; x < canvasWidth; x++ {
+			dx := (float64(x) - cx) / rx
+			dy := (float64(y) - cy) / ry
 			d2 := dx*dx + dy*dy
 
-			if d2 <= 1 {
-				grid[y][x].inside = true
-				grid[y][x].ch = ' '
-
-				if n == 0 {
-					if d2 > 0.85 {
-						grid[y][x].ch = '•'
-						grid[y][x].fg = ansiFgMuted
-					}
-					continue
+			if n == 0 {
+				if d2 >= 0.92 && d2 <= 1.05 {
+					canvas[y][x] = subPixel{on: true, color: ansiFgMuted}
 				}
-
-				angle := math.Atan2(dy, dx)
-				if angle < 0 {
-					angle += 2 * math.Pi
-				}
-
-				idx := int(math.Floor(angle / (2 * math.Pi / float64(n))))
-				if idx >= n {
-					idx = n - 1
-				}
-
-				winner := m.lastWinners[m.selectedRoulette]
-				isWinnerSlice := winner != "" && participants[idx].Name() == winner
-				isSpinSlice := m.spinning && m.spinRouletteIndex == m.selectedRoulette && idx == m.spinCurrentSlice
-				grid[y][x].bg = participantBgColor(idx, n, isWinnerSlice || isSpinSlice)
+				continue
 			}
-		}
-	}
 
-	if n > 0 {
-		for i, p := range participants {
-			label := truncateLabel(p.Name(), 8)
-			theta := (2*math.Pi/float64(n))*float64(i) + (math.Pi / float64(n))
-			lx := radiusX + int(math.Cos(theta)*float64(radiusX)*0.52)
-			ly := radiusY + int(math.Sin(theta)*float64(radiusY)*0.52)
-			startX := lx - len([]rune(label))/2
-
-			for j, ch := range []rune(label) {
-				x := startX + j
-				y := ly
-				if y < 0 || y >= len(grid) || x < 0 || x >= len(grid[y]) {
-					continue
-				}
-				if !grid[y][x].inside {
-					continue
-				}
-
-				grid[y][x].ch = ch
-				grid[y][x].fg = ansiBold + ansiFgBase
+			if d2 > 1 {
+				continue
 			}
+
+			angle := math.Atan2(dy, dx)
+			if angle < 0 {
+				angle += 2 * math.Pi
+			}
+
+			idx := int(math.Floor(angle / (2 * math.Pi / float64(n))))
+			if idx >= n {
+				idx = n - 1
+			}
+
+			winner := m.lastWinners[m.selectedRoulette]
+			isWinnerSlice := winner != "" && participants[idx].Name() == winner
+			isSpinSlice := m.spinning && m.spinRouletteIndex == m.selectedRoulette && idx == m.spinCurrentSlice
+
+			canvas[y][x] = subPixel{on: true, color: participantFgColor(idx, n, isWinnerSlice || isSpinSlice)}
 		}
 	}
 
 	var out strings.Builder
-	for y := 0; y < len(grid); y++ {
-		for x := 0; x < len(grid[y]); x++ {
-			cell := grid[y][x]
-			if !cell.inside {
+	for y := 0; y < canvasHeight; y += 4 {
+		for x := 0; x < canvasWidth; x += 2 {
+			mask := 0
+			colorHits := map[string]int{}
+
+			for py := 0; py < 4; py++ {
+				for px := 0; px < 2; px++ {
+					sy := y + py
+					sx := x + px
+					if sy >= canvasHeight || sx >= canvasWidth {
+						continue
+					}
+
+					s := canvas[sy][sx]
+					if !s.on {
+						continue
+					}
+
+					mask |= brailleDotMask(px, py)
+					if s.color != "" {
+						colorHits[s.color]++
+					}
+				}
+			}
+
+			if mask == 0 {
 				out.WriteString(" ")
 				continue
 			}
 
-			if n == 0 {
-				if cell.ch == '•' {
-					out.WriteString(paint("•", cell.fg))
-				} else {
-					out.WriteString(" ")
-				}
-				continue
-			}
-
-			if cell.ch == ' ' {
-				out.WriteString(paint(" ", cell.bg))
-				continue
-			}
-
-			if cell.fg == "" {
-				cell.fg = ansiFgBase
-			}
-			out.WriteString(paint(string(cell.ch), cell.bg, cell.fg))
+			glyph := string(rune(0x2800 + mask))
+			out.WriteString(paint(glyph, dominantColor(colorHits)))
 		}
-		if y < len(grid)-1 {
+
+		if y < canvasHeight-4 {
 			out.WriteString("\n")
 		}
 	}
@@ -667,6 +652,46 @@ func spinDelay(step int, total int) time.Duration {
 	eased := ratio * ratio
 	delayMs := minDelayMs + int(float64(maxDelayMs-minDelayMs)*eased)
 	return time.Duration(delayMs) * time.Millisecond
+}
+
+func brailleDotMask(px int, py int) int {
+	switch {
+	case px == 0 && py == 0:
+		return 1 << 0 // dot 1
+	case px == 0 && py == 1:
+		return 1 << 1 // dot 2
+	case px == 0 && py == 2:
+		return 1 << 2 // dot 3
+	case px == 1 && py == 0:
+		return 1 << 3 // dot 4
+	case px == 1 && py == 1:
+		return 1 << 4 // dot 5
+	case px == 1 && py == 2:
+		return 1 << 5 // dot 6
+	case px == 0 && py == 3:
+		return 1 << 6 // dot 7
+	case px == 1 && py == 3:
+		return 1 << 7 // dot 8
+	default:
+		return 0
+	}
+}
+
+func dominantColor(hits map[string]int) string {
+	best := ""
+	bestCount := -1
+	for color, count := range hits {
+		if count > bestCount {
+			best = color
+			bestCount = count
+		}
+	}
+
+	if best == "" {
+		return ansiFgMuted
+	}
+
+	return best
 }
 
 func (m model) marker(hasFocus bool, isSelected bool) string {
@@ -838,20 +863,20 @@ func clamp(value int, minValue int, maxValue int) int {
 	return value
 }
 
-func participantBgColor(index int, total int, bright bool) string {
+func participantFgColor(index int, total int, bright bool) string {
 	if total <= 0 {
-		return ansiBgSurface
+		return ansiFgMuted
 	}
 
 	h := (360.0 / float64(total)) * float64(index)
 	s := 0.72
-	v := 0.62
+	v := 0.78
 	if bright {
-		v = 0.90
+		v = 0.98
 	}
 
 	r, g, b := hsvToRGB(h, s, v)
-	return fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b)
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
 }
 
 func hsvToRGB(h float64, s float64, v float64) (int, int, int) {
