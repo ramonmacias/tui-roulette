@@ -8,22 +8,48 @@ import (
 	"github.com/google/uuid"
 )
 
+type Mode string
+
+const (
+	ModeRepeatableWinners Mode = "REPEATABLE_WINNERS"
+	ModeNoRepeatWinners   Mode = "NO_REPEAT_WINNERS"
+	ModeElimination       Mode = "ELIMINATION"
+	ModeMultiWinner       Mode = "MULTI_WINNER"
+)
+
+type Option func(r *Roulette)
+
+func WithMultiWinnerCounter(count int) Option {
+	return func(r *Roulette) {
+		r.multiWinnerCounter = count
+	}
+}
+
 // Roulette stores the participants and winners for a raffle draw.
 type Roulette struct {
-	id           uuid.UUID
-	name         string
-	participants []Participant
-	winners      []Participant
+	id                 uuid.UUID
+	name               string
+	mode               Mode
+	participants       []Participant
+	winners            []Participant
+	multiWinnerCounter int
 }
 
 // NewRoulette creates an empty roulette with a generated identifier.
-func NewRoulette(name string) *Roulette {
-	return &Roulette{
+func NewRoulette(name string, mode Mode, opts ...Option) *Roulette {
+	r := &Roulette{
 		id:           uuid.New(),
 		name:         name,
+		mode:         mode,
 		participants: []Participant{},
 		winners:      []Participant{},
 	}
+
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	return r
 }
 
 func existingParticipant(p Participant) func(existing Participant) bool {
@@ -69,15 +95,86 @@ func (r *Roulette) Winners() []Participant {
 }
 
 // Spin randomly selects one participant and records that participant as a winner.
-func (r *Roulette) Spin() (*Participant, error) {
+func (r *Roulette) Spin() error {
 	if len(r.participants) == 0 {
-		return nil, errors.New("cannot spin roulette without participants")
+		return errors.New("cannot spin roulette without participants")
 	}
 
-	i := rand.IntN(len(r.participants))
-	winner := r.participants[i]
-	r.winners = append(r.winners, winner)
-	return &winner, nil
+	switch r.mode {
+	case ModeNoRepeatWinners:
+		return r.spinModeNoRepeatWinners()
+	case ModeRepeatableWinners:
+		return r.spinModeRepeatableWinners()
+	case ModeElimination:
+		return r.spinModeElimination()
+	case ModeMultiWinner:
+		return r.spinModeMultiWinner()
+	default:
+		return errors.New("roulette mode not allowed")
+	}
+}
+
+func (r *Roulette) spinModeMultiWinner() error {
+	if r.multiWinnerCounter == 0 {
+		return errors.New("we need to define the number of winners")
+	}
+	if r.multiWinnerCounter >= len(r.participants) {
+		return errors.New("we cannot config a multi winner counter equal or bigger than the number of participants")
+	}
+
+	candidates := r.participants
+	for i := 0; i < r.multiWinnerCounter; i++ {
+		i := rand.IntN(len(candidates))
+		winner := candidates[i]
+		r.winners = append(candidates, winner)
+		candidates = slices.DeleteFunc(candidates, existingParticipant(winner))
+	}
+	return nil
+}
+
+func (r *Roulette) spinModeElimination() error {
+	candidates := []Participant{}
+	if len(r.winners) == 0 {
+		candidates = r.participants
+	} else {
+		for index := range r.winners {
+			if !slices.ContainsFunc(r.participants, existingParticipant(r.winners[index])) {
+				candidates = append(candidates, r.winners[index])
+			}
+		}
+	}
+
+	i := rand.IntN(len(candidates))
+	winner := candidates[i]
+	r.winners = append(candidates, winner)
+	return nil
+}
+
+func (r *Roulette) spinModeRepeatableWinners() error {
+	candidates := r.participants
+
+	i := rand.IntN(len(candidates))
+	winner := candidates[i]
+	r.winners = append(candidates, winner)
+	return nil
+}
+
+func (r *Roulette) spinModeNoRepeatWinners() error {
+	candidates := []Participant{}
+	if len(r.winners) == 0 {
+		candidates = r.participants
+	} else {
+		for index := range r.winners {
+			if !slices.ContainsFunc(r.participants, existingParticipant(r.winners[index])) {
+				candidates = append(candidates, r.winners[index])
+			}
+		}
+	}
+
+	i := rand.IntN(len(candidates))
+	winner := candidates[i]
+	r.winners = append(candidates, winner)
+	return nil
 }
 
 // Participant represents a person that can be added to a roulette.

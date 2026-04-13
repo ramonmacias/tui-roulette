@@ -228,7 +228,7 @@ func (m model) updateCreateRoulette(key string) model {
 			return m
 		}
 
-		m.roulettes = append(m.roulettes, NewRoulette(name))
+		m.roulettes = append(m.roulettes, NewRoulette(name, ModeRepeatableWinners))
 		m.selectedRoulette = len(m.roulettes) - 1
 		m.selectedParticipant = 0
 		m.focus = focusParticipants
@@ -357,11 +357,19 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 		return m, nil
 	}
 
-	winner, err := r.Spin()
-	if err != nil {
+	if err := r.Spin(); err != nil {
 		m.errorMessage = err.Error()
 		return m, nil
 	}
+
+	// The winner is the last entry appended by Spin().
+	winners := r.Winners()
+	if len(winners) == 0 {
+		m.errorMessage = "spin completed but no winner was recorded"
+		return m, nil
+	}
+
+	winner := winners[len(winners)-1]
 
 	participants := r.Participants()
 	winnerIndex := -1
