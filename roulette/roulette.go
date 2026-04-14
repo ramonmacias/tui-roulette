@@ -27,11 +27,16 @@ func WithMultiWinnerCounter(count int) Option {
 
 // Roulette stores the participants and winners for a raffle draw.
 type Roulette struct {
-	id                 uuid.UUID
-	name               string
-	mode               Mode
-	participants       []Participant
-	winners            []Participant
+	id           uuid.UUID
+	name         string
+	mode         Mode
+	participants []Participant
+	winners      []Participant
+	// only used for the elimination mode to keep track on who is already
+	// being eliminated
+	eliminated []Participant
+	// only used on the multi winner mode to know how many winners we need to pick
+	// while spinning the roulette
 	multiWinnerCounter int
 }
 
@@ -134,19 +139,32 @@ func (r *Roulette) spinModeMultiWinner() error {
 
 func (r *Roulette) spinModeElimination() error {
 	candidates := []Participant{}
-	if len(r.winners) == 0 {
+	if len(r.eliminated) == 0 {
 		candidates = r.participants
 	} else {
-		for index := range r.winners {
-			if !slices.ContainsFunc(r.participants, existingParticipant(r.winners[index])) {
-				candidates = append(candidates, r.winners[index])
+		for index := range r.participants {
+			if !slices.ContainsFunc(r.eliminated, existingParticipant(r.participants[index])) {
+				candidates = append(candidates, r.participants[index])
 			}
 		}
 	}
 
+	if len(r.participants) == 1 {
+		r.winners = append(r.winners, r.participants[0])
+	}
+
+	if len(r.winners) > 0 {
+		return errors.New("we have already a winner")
+	}
+
 	i := rand.IntN(len(candidates))
-	winner := candidates[i]
-	r.winners = append(r.winners, winner)
+	eliminated := candidates[i]
+	r.eliminated = append(r.eliminated, eliminated)
+
+	candidates = slices.DeleteFunc(candidates, existingParticipant(eliminated))
+	if len(candidates) == 1 {
+		r.winners = append(r.winners, candidates[0])
+	}
 	return nil
 }
 

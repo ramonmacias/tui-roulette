@@ -179,7 +179,7 @@ func TestSpinModeRepeatableWinnersRoulette(t *testing.T) {
 	}
 }
 
-func TestSpinModeNoRepeatWinners(t *testing.T) {
+func TestSpinModeNoRepeatWinnersRoulette(t *testing.T) {
 	testCases := map[string]struct {
 		roulette     *roulette.Roulette
 		expectedErr  error
@@ -226,6 +226,67 @@ func TestSpinModeNoRepeatWinners(t *testing.T) {
 				}
 				assert.Equal(t, 1, foundAlfred)
 				assert.Equal(t, 1, foundJohn)
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			err := tc.roulette.Spin()
+			assert.Equal(t, tc.expectedErr, err)
+			tc.assertWinner(tc.roulette)
+		})
+	}
+}
+
+func TestSpinModeEliminationRoulette(t *testing.T) {
+	testCases := map[string]struct {
+		roulette     *roulette.Roulette
+		expectedErr  error
+		assertWinner func(r *roulette.Roulette)
+	}{
+		"it should return an error if there are no participants": {
+			roulette:    roulette.NewRoulette("test-roulette", roulette.ModeElimination),
+			expectedErr: errors.New("cannot spin roulette without participants"),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 0)
+			},
+		},
+		"it should return an error if we have already a winner": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeElimination)
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Alfred"))
+				err := r.Spin()
+				assert.Nil(t, err)
+				return r
+			}(),
+			expectedErr: errors.New("we have already a winner"),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 1)
+			},
+		},
+		"it should return an error when we have only one participant": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeElimination)
+				r.AddParticipant(roulette.NewParticipant("John"))
+				return r
+			}(),
+			expectedErr: errors.New("we have already a winner"),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 1)
+			},
+		},
+		"it should not have any winner if we still have some participants that are not eliminated yet": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeElimination)
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Alfred"))
+				r.AddParticipant(roulette.NewParticipant("Ramon"))
+				return r
+			}(),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 0)
 			},
 		},
 	}
