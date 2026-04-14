@@ -18,7 +18,7 @@ func TestAddRouletteParticipant(t *testing.T) {
 	}{
 		"it should fail if the roulette already have the participant added": {
 			roulette: func() *roulette.Roulette {
-				r := roulette.NewRoulette("test-roulette")
+				r := roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners)
 				err := r.AddParticipant(duplicatedParticipant)
 				assert.Nil(t, err)
 				return r
@@ -32,7 +32,7 @@ func TestAddRouletteParticipant(t *testing.T) {
 		},
 		"it should fail if the roulette has already a participant with the same name": {
 			roulette: func() *roulette.Roulette {
-				r := roulette.NewRoulette("test-roulette")
+				r := roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners)
 				err := r.AddParticipant(duplicatedParticipant)
 				assert.Nil(t, err)
 				return r
@@ -45,7 +45,7 @@ func TestAddRouletteParticipant(t *testing.T) {
 			},
 		},
 		"it should not fail and add the participant if the roulette has no participants added yet": {
-			roulette:    roulette.NewRoulette("test-roulette"),
+			roulette:    roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners),
 			participant: roulette.NewParticipant("Carl"),
 			assertParticipants: func(r *roulette.Roulette) {
 				assert.Len(t, r.Participants(), 1)
@@ -54,7 +54,7 @@ func TestAddRouletteParticipant(t *testing.T) {
 		},
 		"it should not fail and add the participant if the roulette has already some participants": {
 			roulette: func() *roulette.Roulette {
-				r := roulette.NewRoulette("test-roulette")
+				r := roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners)
 				err := r.AddParticipant(roulette.NewParticipant("Prime"))
 				assert.Nil(t, err)
 				err = r.AddParticipant(roulette.NewParticipant("Agen"))
@@ -89,7 +89,7 @@ func TestRemoveRouletteParticipant(t *testing.T) {
 		assertParticipants func(r *roulette.Roulette)
 	}{
 		"it should fail if the participant is not already added as participant for this roulette": {
-			roulette:    roulette.NewRoulette("test-roulette"),
+			roulette:    roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners),
 			participant: roulette.NewParticipant("John"),
 			expectedErr: errors.New("the given participant is not part of the roulette participants list"),
 			assertParticipants: func(r *roulette.Roulette) {
@@ -98,7 +98,7 @@ func TestRemoveRouletteParticipant(t *testing.T) {
 		},
 		"it should remove the correct participant": {
 			roulette: func() *roulette.Roulette {
-				r := roulette.NewRoulette("test-roulette")
+				r := roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners)
 				r.AddParticipant(removeParticipantCandidate)
 				return r
 			}(),
@@ -109,7 +109,7 @@ func TestRemoveRouletteParticipant(t *testing.T) {
 		},
 		"it should remove the correct participants when multiple participants in the roulette": {
 			roulette: func() *roulette.Roulette {
-				r := roulette.NewRoulette("test-roulette")
+				r := roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners)
 				r.AddParticipant(roulette.NewParticipant("Jose"))
 				r.AddParticipant(roulette.NewParticipant("Marie"))
 				return r
@@ -131,53 +131,110 @@ func TestRemoveRouletteParticipant(t *testing.T) {
 	}
 }
 
-func TestSpinRoulette(t *testing.T) {
+func TestSpinModeRepeatableWinnersRoulette(t *testing.T) {
 	testCases := map[string]struct {
 		roulette     *roulette.Roulette
 		expectedErr  error
-		assertWinner func(r *roulette.Roulette, winner *roulette.Participant)
+		assertWinner func(r *roulette.Roulette)
 	}{
 		"it should return an error if no participants are found in the roulette": {
-			roulette:    roulette.NewRoulette("test-roulette"),
+			roulette:    roulette.NewRoulette("test-roulette", roulette.ModeRepeatableWinners),
 			expectedErr: errors.New("cannot spin roulette without participants"),
-			assertWinner: func(r *roulette.Roulette, winner *roulette.Participant) {
-				assert.Nil(t, winner)
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 0)
 			},
 		},
 		"it should return the winner if only one participant": {
 			roulette: func() *roulette.Roulette {
-				r := roulette.NewRoulette("test-roulette")
+				r := roulette.NewRoulette("test-roulette", roulette.ModeRepeatableWinners)
 				r.AddParticipant(roulette.NewParticipant("John"))
 				return r
 			}(),
-			assertWinner: func(r *roulette.Roulette, winner *roulette.Participant) {
-				assert.NotNil(t, winner)
+			assertWinner: func(r *roulette.Roulette) {
 				assert.Len(t, r.Winners(), 1)
-				assert.Equal(t, "John", winner.Name())
+				assert.Equal(t, "John", r.Winners()[0].Name())
 			},
 		},
 		"it should randomly pick up one participant as a winner and add it into the winners list": {
 			roulette: func() *roulette.Roulette {
-				r := roulette.NewRoulette("test-roulette")
+				r := roulette.NewRoulette("test-roulette", roulette.ModeRepeatableWinners)
 				r.AddParticipant(roulette.NewParticipant("John"))
 				r.AddParticipant(roulette.NewParticipant("Prime"))
 				r.AddParticipant(roulette.NewParticipant("TJ"))
 				r.AddParticipant(roulette.NewParticipant("Rodrigo"))
 				return r
 			}(),
-			assertWinner: func(r *roulette.Roulette, winner *roulette.Participant) {
-				assert.NotNil(t, winner)
+			assertWinner: func(r *roulette.Roulette) {
 				assert.Len(t, r.Winners(), 1)
-				assert.Equal(t, winner.Name(), r.Winners()[0].Name())
 			},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			winner, err := tc.roulette.Spin()
+			err := tc.roulette.Spin()
 			assert.Equal(t, tc.expectedErr, err)
-			tc.assertWinner(tc.roulette, winner)
+			tc.assertWinner(tc.roulette)
+		})
+	}
+}
+
+func TestSpinModeNoRepeatWinners(t *testing.T) {
+	testCases := map[string]struct {
+		roulette     *roulette.Roulette
+		expectedErr  error
+		assertWinner func(r *roulette.Roulette)
+	}{
+		"it should return an error if there are no participants": {
+			roulette:    roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners),
+			expectedErr: errors.New("cannot spin roulette without participants"),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 0)
+			},
+		},
+		"it should return no more winners left error if the last participant already won": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners)
+				r.AddParticipant(roulette.NewParticipant("John"))
+				err := r.Spin()
+				assert.Nil(t, err)
+				return r
+			}(),
+			expectedErr: errors.New("no more winners left"),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 1)
+			},
+		},
+		"it should never pickup one of the winners": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners)
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Alfred"))
+				err := r.Spin()
+				assert.Nil(t, err)
+				return r
+			}(),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 2)
+				var foundJohn, foundAlfred int
+				for i := range r.Winners() {
+					if r.Winners()[i].Name() == "John" {
+						foundJohn++
+					} else if r.Winners()[i].Name() == "Alfred" {
+						foundAlfred++
+					}
+				}
+				assert.Equal(t, 1, foundAlfred)
+				assert.Equal(t, 1, foundJohn)
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			err := tc.roulette.Spin()
+			assert.Equal(t, tc.expectedErr, err)
+			tc.assertWinner(tc.roulette)
 		})
 	}
 }

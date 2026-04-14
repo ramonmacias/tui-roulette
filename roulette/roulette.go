@@ -126,7 +126,7 @@ func (r *Roulette) spinModeMultiWinner() error {
 	for i := 0; i < r.multiWinnerCounter; i++ {
 		i := rand.IntN(len(candidates))
 		winner := candidates[i]
-		r.winners = append(candidates, winner)
+		r.winners = append(r.winners, winner)
 		candidates = slices.DeleteFunc(candidates, existingParticipant(winner))
 	}
 	return nil
@@ -146,7 +146,7 @@ func (r *Roulette) spinModeElimination() error {
 
 	i := rand.IntN(len(candidates))
 	winner := candidates[i]
-	r.winners = append(candidates, winner)
+	r.winners = append(r.winners, winner)
 	return nil
 }
 
@@ -155,7 +155,7 @@ func (r *Roulette) spinModeRepeatableWinners() error {
 
 	i := rand.IntN(len(candidates))
 	winner := candidates[i]
-	r.winners = append(candidates, winner)
+	r.winners = append(r.winners, winner)
 	return nil
 }
 
@@ -164,16 +164,19 @@ func (r *Roulette) spinModeNoRepeatWinners() error {
 	if len(r.winners) == 0 {
 		candidates = r.participants
 	} else {
-		for index := range r.winners {
-			if !slices.ContainsFunc(r.participants, existingParticipant(r.winners[index])) {
-				candidates = append(candidates, r.winners[index])
+		for index := range r.participants {
+			if !slices.ContainsFunc(r.winners, existingParticipant(r.participants[index])) {
+				candidates = append(candidates, r.participants[index])
 			}
 		}
+	}
+	if len(candidates) <= 0 {
+		return errors.New("no more winners left")
 	}
 
 	i := rand.IntN(len(candidates))
 	winner := candidates[i]
-	r.winners = append(candidates, winner)
+	r.winners = append(r.winners, winner)
 	return nil
 }
 
