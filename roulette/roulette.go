@@ -8,17 +8,24 @@ import (
 	"github.com/google/uuid"
 )
 
+// Mode defines the spinning behavior and winner selection strategy for a roulette.
 type Mode string
 
 const (
+	// ModeRepeatableWinners allows the same participant to win multiple times.
 	ModeRepeatableWinners Mode = "REPEATABLE_WINNERS"
-	ModeNoRepeatWinners   Mode = "NO_REPEAT_WINNERS"
-	ModeElimination       Mode = "ELIMINATION"
-	ModeMultiWinner       Mode = "MULTI_WINNER"
+	// ModeNoRepeatWinners ensures each participant can only win once.
+	ModeNoRepeatWinners Mode = "NO_REPEAT_WINNERS"
+	// ModeElimination removes participants one by one until only one remains.
+	ModeElimination Mode = "ELIMINATION"
+	// ModeMultiWinner selects multiple winners in a single spin.
+	ModeMultiWinner Mode = "MULTI_WINNER"
 )
 
+// Option is a functional option for configuring a Roulette during creation.
 type Option func(r *Roulette)
 
+// WithMultiWinnerCounter sets the number of winners to select in MULTI_WINNER mode.
 func WithMultiWinnerCounter(count int) Option {
 	return func(r *Roulette) {
 		r.multiWinnerCounter = count
@@ -99,7 +106,13 @@ func (r *Roulette) Winners() []Participant {
 	return r.winners
 }
 
-// Spin randomly selects one participant and records that participant as a winner.
+// Reset clears all winners and eliminated participants from the roulette.
+func (r *Roulette) Reset() {
+	r.winners = []Participant{}
+	r.eliminated = []Participant{}
+}
+
+// Spin randomly selects one or more participants based on the roulette mode and records them as winners.
 func (r *Roulette) Spin() error {
 	if len(r.participants) == 0 {
 		return errors.New("cannot spin roulette without participants")
@@ -119,6 +132,49 @@ func (r *Roulette) Spin() error {
 	}
 }
 
+// spinModeNoRepeatWinners selects a random participant who has never won before.
+func (r *Roulette) spinModeNoRepeatWinners() error {
+	candidates := r.filterCandidates(r.winners)
+	if len(candidates) == 0 {
+		return errors.New("no more winners left")
+	}
+
+	winner := r.pickRandomParticipant(candidates)
+	r.winners = append(r.winners, winner)
+	return nil
+}
+
+// spinModeRepeatableWinners selects a random participant allowing the same person to win multiple times.
+func (r *Roulette) spinModeRepeatableWinners() error {
+	winner := r.pickRandomParticipant(r.participants)
+	r.winners = append(r.winners, winner)
+	return nil
+}
+
+// spinModeElimination progressively eliminates participants until only one remains as the final winner.
+// Subsequent spins after a winner is determined will return an error.
+func (r *Roulette) spinModeElimination() error {
+	candidates := r.filterCandidates(r.eliminated)
+	if len(candidates) == 0 {
+		return errors.New("all participants have been eliminated")
+	}
+
+	if len(candidates) == 1 {
+		r.winners = append(r.winners, candidates[0])
+		return errors.New("we have already a winner")
+	}
+
+	if len(r.winners) > 0 {
+		return errors.New("we have already a winner")
+	}
+
+	eliminated := r.pickRandomParticipant(candidates)
+	r.eliminated = append(r.eliminated, eliminated)
+
+	return nil
+}
+
+// spinModeMultiWinner selects multiple winners in a single spin based on the configured counter.
 func (r *Roulette) spinModeMultiWinner() error {
 	if r.multiWinnerCounter == 0 {
 		return errors.New("we need to define the number of winners")
@@ -129,73 +185,28 @@ func (r *Roulette) spinModeMultiWinner() error {
 
 	candidates := r.participants
 	for i := 0; i < r.multiWinnerCounter; i++ {
-		i := rand.IntN(len(candidates))
-		winner := candidates[i]
+		winner := r.pickRandomParticipant(candidates)
 		r.winners = append(r.winners, winner)
 		candidates = slices.DeleteFunc(candidates, existingParticipant(winner))
 	}
 	return nil
 }
 
-func (r *Roulette) spinModeElimination() error {
-	candidates := []Participant{}
-	if len(r.eliminated) == 0 {
-		candidates = r.participants
-	} else {
-		for index := range r.participants {
-			if !slices.ContainsFunc(r.eliminated, existingParticipant(r.participants[index])) {
-				candidates = append(candidates, r.participants[index])
-			}
-		}
-	}
-
-	if len(r.participants) == 1 {
-		r.winners = append(r.winners, r.participants[0])
-	}
-
-	if len(r.winners) > 0 {
-		return errors.New("we have already a winner")
-	}
-
-	i := rand.IntN(len(candidates))
-	eliminated := candidates[i]
-	r.eliminated = append(r.eliminated, eliminated)
-
-	candidates = slices.DeleteFunc(candidates, existingParticipant(eliminated))
-	if len(candidates) == 1 {
-		r.winners = append(r.winners, candidates[0])
-	}
-	return nil
+// pickRandomParticipant returns a random participant from the candidates list.
+func (r *Roulette) pickRandomParticipant(candidates []Participant) Participant {
+	idx := rand.IntN(len(candidates))
+	return candidates[idx]
 }
 
-func (r *Roulette) spinModeRepeatableWinners() error {
-	candidates := r.participants
-
-	i := rand.IntN(len(candidates))
-	winner := candidates[i]
-	r.winners = append(r.winners, winner)
-	return nil
-}
-
-func (r *Roulette) spinModeNoRepeatWinners() error {
-	candidates := []Participant{}
-	if len(r.winners) == 0 {
-		candidates = r.participants
-	} else {
-		for index := range r.participants {
-			if !slices.ContainsFunc(r.winners, existingParticipant(r.participants[index])) {
-				candidates = append(candidates, r.participants[index])
-			}
+// filterCandidates returns participants not in the exclusion list.
+func (r *Roulette) filterCandidates(exclude []Participant) []Participant {
+	var candidates []Participant
+	for _, p := range r.participants {
+		if !slices.ContainsFunc(exclude, existingParticipant(p)) {
+			candidates = append(candidates, p)
 		}
 	}
-	if len(candidates) <= 0 {
-		return errors.New("no more winners left")
-	}
-
-	i := rand.IntN(len(candidates))
-	winner := candidates[i]
-	r.winners = append(r.winners, winner)
-	return nil
+	return candidates
 }
 
 // Participant represents a person that can be added to a roulette.
