@@ -299,3 +299,75 @@ func TestSpinModeEliminationRoulette(t *testing.T) {
 		})
 	}
 }
+
+func TestSpinModeMultiWinnerRoulette(t *testing.T) {
+	testCases := map[string]struct {
+		roulette     *roulette.Roulette
+		expectedErr  error
+		assertWinner func(r *roulette.Roulette)
+	}{
+		"it should return an error if there are no participants": {
+			roulette:    roulette.NewRoulette("test-roulette", roulette.ModeMultiWinner),
+			expectedErr: errors.New("cannot spin roulette without participants"),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 0)
+			},
+		},
+		"it should return an error if we didn't configure the multi winner count value": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeMultiWinner)
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Alfred"))
+				return r
+			}(),
+			expectedErr: errors.New("we need to define the number of winners"),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 0)
+			},
+		},
+		"it should return an error if there is a missmatch between the multi winner counter and the actual number of participants": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeMultiWinner, roulette.WithMultiWinnerCounter(2))
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Alfred"))
+				return r
+			}(),
+			expectedErr: errors.New("we cannot config a multi winner counter equal or bigger than the number of participants"),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 0)
+			},
+		},
+		"it should return an error if we configure more winners than actual participants": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeMultiWinner, roulette.WithMultiWinnerCounter(23))
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Alfred"))
+				return r
+			}(),
+			expectedErr: errors.New("we cannot config a multi winner counter equal or bigger than the number of participants"),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 0)
+			},
+		},
+		"it should return the expected number of winners based on the provided configuration": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeMultiWinner, roulette.WithMultiWinnerCounter(2))
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Alfred"))
+				r.AddParticipant(roulette.NewParticipant("Ramon"))
+				return r
+			}(),
+			assertWinner: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 2)
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			err := tc.roulette.Spin()
+			assert.Equal(t, tc.expectedErr, err)
+			tc.assertWinner(tc.roulette)
+		})
+	}
+}
