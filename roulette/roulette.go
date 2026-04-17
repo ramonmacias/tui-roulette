@@ -75,6 +75,16 @@ func (r *Roulette) Name() string {
 	return r.name
 }
 
+// Mode returns the configured spinning mode for the roulette.
+func (r *Roulette) Mode() Mode {
+	return r.mode
+}
+
+// MultiWinnerCounter returns the configured number of winners for MULTI_WINNER mode.
+func (r *Roulette) MultiWinnerCounter() int {
+	return r.multiWinnerCounter
+}
+
 // AddParticipant adds a participant to the roulette if no participant with the same name exists yet.
 func (r *Roulette) AddParticipant(p Participant) error {
 	if slices.ContainsFunc(r.participants, existingParticipant(p)) {
@@ -104,6 +114,12 @@ func (r *Roulette) Participants() []Participant {
 // Winners returns the current list of participants that won during that roulette spins.
 func (r *Roulette) Winners() []Participant {
 	return r.winners
+}
+
+// Eliminated returns the current list of participants that were already eliminated after
+// spinning the roulette on the elimination mode.
+func (r *Roulette) Eliminated() []Participant {
+	return r.eliminated
 }
 
 // Reset clears all winners and eliminated participants from the roulette.
@@ -159,12 +175,12 @@ func (r *Roulette) spinModeElimination() error {
 		return errors.New("all participants have been eliminated")
 	}
 
-	if len(candidates) == 1 {
-		r.winners = append(r.winners, candidates[0])
+	if len(r.winners) > 0 {
 		return errors.New("we have already a winner")
 	}
 
-	if len(r.winners) > 0 {
+	if len(candidates) == 1 {
+		r.winners = append(r.winners, candidates[0])
 		return errors.New("we have already a winner")
 	}
 
