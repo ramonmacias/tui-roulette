@@ -107,8 +107,20 @@ func (r *Roulette) RemoveParticipant(p Participant) error {
 }
 
 // Participants returns the current list of participants in the roulette.
+// The list will be adapted based on the roulette mode.
 func (r *Roulette) Participants() []Participant {
-	return r.participants
+	switch r.mode {
+	case ModeNoRepeatWinners:
+		return r.filterCandidates(r.winners)
+	case ModeRepeatableWinners:
+		return r.participants
+	case ModeElimination:
+		return r.filterCandidates(r.eliminated)
+	case ModeMultiWinner:
+		return r.participants
+	default:
+		return r.participants
+	}
 }
 
 // Winners returns the current list of participants that won during that roulette spins.

@@ -53,6 +53,7 @@ type model struct {
 	spinRouletteIndex   int
 	spinWinnerName      string
 	spinWinnerSlice     int
+	spinParticipants    []Participant
 	spinCurrentSlice    int
 	spinTotalSteps      int
 	spinStep            int
@@ -456,6 +457,12 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 		return m, nil
 	}
 
+	participantsBeforeSpin := append([]Participant(nil), r.Participants()...)
+	if len(participantsBeforeSpin) == 0 {
+		m.errorMessage = "cannot spin roulette without participants"
+		return m, nil
+	}
+
 	previousWinnerCount := len(r.Winners())
 	previousEliminatedCount := len(r.Eliminated())
 
@@ -468,7 +475,7 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 		m.infoMessage = err.Error()
 	}
 
-	participants := r.Participants()
+	participants := participantsBeforeSpin
 	resultName := ""
 	resultIsWinner := false
 
@@ -501,7 +508,7 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 	}
 
 	if winnerIndex < 0 {
-		m.errorMessage = "winner not found in participants"
+		m.errorMessage = "spin result not found in participants"
 		return m, nil
 	}
 
@@ -517,6 +524,7 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 	m.spinRouletteIndex = m.selectedRoulette
 	m.spinWinnerName = resultName
 	m.spinWinnerSlice = winnerIndex
+	m.spinParticipants = participantsBeforeSpin
 	m.spinCurrentSlice = startIndex
 	m.spinTotalSteps = totalSteps
 	m.spinStep = 0
@@ -531,12 +539,17 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 func (m model) advanceSpin() (model, tea.Cmd) {
 	if m.spinRouletteIndex < 0 || m.spinRouletteIndex >= len(m.roulettes) {
 		m.spinning = false
+		m.spinParticipants = nil
 		return m, nil
 	}
 
-	participants := m.roulettes[m.spinRouletteIndex].Participants()
+	participants := m.spinParticipants
+	if len(participants) == 0 {
+		participants = m.roulettes[m.spinRouletteIndex].Participants()
+	}
 	if len(participants) == 0 {
 		m.spinning = false
+		m.spinParticipants = nil
 		return m, nil
 	}
 
@@ -545,6 +558,7 @@ func (m model) advanceSpin() (model, tea.Cmd) {
 
 	if m.spinStep >= m.spinTotalSteps {
 		m.spinning = false
+		m.spinParticipants = nil
 		m.spinCurrentSlice = m.spinWinnerSlice
 		m.spinVisibleWinners = 0
 		m.spinVisibleElim = 0
@@ -568,6 +582,9 @@ func (m model) renderWheel() string {
 	}
 
 	participants := r.Participants()
+	if m.spinning && m.spinRouletteIndex == m.selectedRoulette && len(m.spinParticipants) > 0 {
+		participants = m.spinParticipants
+	}
 	n := len(participants)
 
 	const canvasWidth = 64  // braille sub-pixels (2 per text cell)
