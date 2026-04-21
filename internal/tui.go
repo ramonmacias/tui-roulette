@@ -71,12 +71,28 @@ type model struct {
 	input               string
 	errorMessage        string
 	infoMessage         string
+	storage             Storage
 }
 
 // InitialModel builds the Bubble Tea model used by the roulette TUI.
-func InitialModel() tea.Model {
+func InitialModel(storage Storage) tea.Model {
+	// Load roulettes from storage
+	roulettes := []*Roulette{}
+	if storage != nil {
+		if loaded, err := storage.Load(); err == nil {
+			roulettes = loaded
+		}
+	}
+
+	infoMsg := "Create your first roulette to get started."
+	screenMode := modeCreateRoulette
+	if len(roulettes) > 0 {
+		infoMsg = "Browse your roulettes or create a new one."
+		screenMode = modeBrowse
+	}
+
 	return model{
-		roulettes:           []*Roulette{},
+		roulettes:           roulettes,
 		selectedRoulette:    0,
 		selectedParticipant: 0,
 		createName:          "",
@@ -84,8 +100,9 @@ func InitialModel() tea.Model {
 		createMultiCount:    0,
 		lastWinners:         map[int]string{},
 		focus:               focusRoulettes,
-		mode:                modeCreateRoulette,
-		infoMessage:         "Create your first roulette to get started.",
+		mode:                screenMode,
+		infoMessage:         infoMsg,
+		storage:             storage,
 	}
 }
 
@@ -275,6 +292,9 @@ func (m model) updateCreateRoulette(key string) model {
 		m.createMode = ModeRepeatableWinners
 		m.createMultiCount = 0
 		m.infoMessage = fmt.Sprintf("Roulette %s created with mode %s. Add participants and press esc when done.", name, renderModeLabel(m.roulettes[m.selectedRoulette].Mode(), m.roulettes[m.selectedRoulette].MultiWinnerCounter()))
+		if m.storage != nil {
+			m.storage.Save(m.roulettes)
+		}
 	case "backspace":
 		m.input = deleteLastRune(m.input)
 	case "space":
@@ -350,6 +370,9 @@ func (m model) updateAddParticipant(key string) model {
 		m.input = ""
 		m.focus = focusParticipants
 		m.infoMessage = fmt.Sprintf("Participant %s added to %s. Press enter to add another or esc when done.", name, r.Name())
+		if m.storage != nil {
+			m.storage.Save(m.roulettes)
+		}
 	case "backspace":
 		m.input = deleteLastRune(m.input)
 	case "space":
@@ -423,6 +446,9 @@ func (m *model) removeCurrentParticipant() {
 	}
 
 	m.infoMessage = fmt.Sprintf("Participant %s removed from %s.", participantName, r.Name())
+	if m.storage != nil {
+		m.storage.Save(m.roulettes)
+	}
 }
 
 func (m *model) resetCurrentRoulette() {
@@ -435,6 +461,9 @@ func (m *model) resetCurrentRoulette() {
 	r.Reset()
 	delete(m.lastWinners, m.selectedRoulette)
 	m.infoMessage = fmt.Sprintf("Roulette %s was reset.", r.Name())
+	if m.storage != nil {
+		m.storage.Save(m.roulettes)
+	}
 }
 
 func nextMode(current Mode) Mode {

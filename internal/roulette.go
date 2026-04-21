@@ -75,6 +75,11 @@ func (r *Roulette) Name() string {
 	return r.name
 }
 
+// ID returns the roulette unique identifier.
+func (r *Roulette) ID() string {
+	return r.id.String()
+}
+
 // Mode returns the configured spinning mode for the roulette.
 func (r *Roulette) Mode() Mode {
 	return r.mode
