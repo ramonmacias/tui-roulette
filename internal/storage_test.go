@@ -4,155 +4,185 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestFileStoragePersistence(t *testing.T) {
-	// Create a temporary directory for the test
+func newTestStorage(t *testing.T) *FileStorage {
+	t.Helper()
+
 	tempDir, err := os.MkdirTemp("", "tui-roulette-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(tempDir)
+	})
 
-	// Create a custom FileStorage pointing to temp directory
 	configDir := filepath.Join(tempDir, ".config", "tui-roulette")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		t.Fatalf("Failed to create config dir: %v", err)
-	}
+	assert.NoError(t, os.MkdirAll(configDir, 0o755))
 
-	storage := &FileStorage{
-		filePath: filepath.Join(configDir, "roulettes.json"),
-	}
-
-	// Create some test roulettes
-	roulette1 := NewRoulette("Test Roulette 1", ModeRepeatableWinners)
-	if err := roulette1.AddParticipant(NewParticipant("Alice")); err != nil {
-		t.Fatalf("Failed to add participant: %v", err)
-	}
-	if err := roulette1.AddParticipant(NewParticipant("Bob")); err != nil {
-		t.Fatalf("Failed to add participant: %v", err)
-	}
-
-	roulette2 := NewRoulette("Test Roulette 2", ModeNoRepeatWinners)
-	if err := roulette2.AddParticipant(NewParticipant("Charlie")); err != nil {
-		t.Fatalf("Failed to add participant: %v", err)
-	}
-
-	original := []*Roulette{roulette1, roulette2}
-
-	// Save
-	if err := storage.Save(original); err != nil {
-		t.Fatalf("Failed to save roulettes: %v", err)
-	}
-
-	// Verify file exists
-	if _, err := os.Stat(storage.filePath); err != nil {
-		t.Fatalf("Persisted file does not exist: %v", err)
-	}
-
-	// Load
-	loaded, err := storage.Load()
-	if err != nil {
-		t.Fatalf("Failed to load roulettes: %v", err)
-	}
-
-	// Verify counts
-	if len(loaded) != len(original) {
-		t.Fatalf("Expected %d roulettes, got %d", len(original), len(loaded))
-	}
-
-	// Verify data integrity
-	if loaded[0].Name() != "Test Roulette 1" {
-		t.Fatalf("Expected name 'Test Roulette 1', got '%s'", loaded[0].Name())
-	}
-
-	if len(loaded[0].Participants()) != 2 {
-		t.Fatalf("Expected 2 participants, got %d", len(loaded[0].Participants()))
-	}
-
-	if loaded[0].Participants()[0].Name() != "Alice" {
-		t.Fatalf("Expected participant 'Alice', got '%s'", loaded[0].Participants()[0].Name())
-	}
-
-	if loaded[1].Mode() != ModeNoRepeatWinners {
-		t.Fatalf("Expected mode %s, got %s", ModeNoRepeatWinners, loaded[1].Mode())
-	}
-
-	t.Logf("Persistence test passed: saved and loaded %d roulettes successfully", len(loaded))
+	return &FileStorage{filePath: filepath.Join(configDir, "roulettes.json")}
 }
 
-func TestFileStorageEmptyLoad(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "tui-roulette-test-empty-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+func TestFileStoragePersistence(t *testing.T) {
+	testCases := map[string]struct {
+		setupData func(t *testing.T) []*Roulette
+		assertFn  func(t *testing.T, loaded []*Roulette)
+	}{
+		"it should persist and load roulettes with participants and modes": {
+			setupData: func(t *testing.T) []*Roulette {
+				roulette1 := NewRoulette("Test Roulette 1", ModeRepeatableWinners)
+				assert.NoError(t, roulette1.AddParticipant(NewParticipant("Alice")))
+				assert.NoError(t, roulette1.AddParticipant(NewParticipant("Bob")))
+
+				roulette2 := NewRoulette("Test Roulette 2", ModeNoRepeatWinners)
+				assert.NoError(t, roulette2.AddParticipant(NewParticipant("Charlie")))
+
+				return []*Roulette{roulette1, roulette2}
+			},
+			assertFn: func(t *testing.T, loaded []*Roulette) {
+				assert.Len(t, loaded, 2)
+				assert.Equal(t, "Test Roulette 1", loaded[0].Name())
+				assert.Len(t, loaded[0].Participants(), 2)
+				assert.Equal(t, "Alice", loaded[0].Participants()[0].Name())
+				assert.Equal(t, ModeNoRepeatWinners, loaded[1].Mode())
+			},
+		},
 	}
-	defer os.RemoveAll(tempDir)
 
-	configDir := filepath.Join(tempDir, ".config", "tui-roulette")
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			storage := newTestStorage(t)
+			original := tc.setupData(t)
 
-	storage := &FileStorage{
-		filePath: filepath.Join(configDir, "roulettes.json"),
+			err := storage.Save(original)
+			assert.NoError(t, err)
+
+			_, err = os.Stat(storage.filePath)
+			assert.NoError(t, err)
+
+			loaded, err := storage.Load()
+			assert.NoError(t, err)
+
+			tc.assertFn(t, loaded)
+		})
+	}
+}
+
+func TestFileStorageLoad(t *testing.T) {
+	testCases := map[string]struct {
+		prepareStorage func(t *testing.T, storage *FileStorage)
+		assertFn       func(t *testing.T, loaded []*Roulette, err error)
+	}{
+		"it should return an empty slice when file does not exist": {
+			prepareStorage: func(t *testing.T, storage *FileStorage) {},
+			assertFn: func(t *testing.T, loaded []*Roulette, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, loaded)
+			},
+		},
 	}
 
-	// Load from non-existent file should return empty slice
-	loaded, err := storage.Load()
-	if err != nil {
-		t.Fatalf("Expected no error for missing file, got: %v", err)
-	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			storage := newTestStorage(t)
+			tc.prepareStorage(t, storage)
 
-	if len(loaded) != 0 {
-		t.Fatalf("Expected empty slice for missing file, got %d roulettes", len(loaded))
+			loaded, err := storage.Load()
+			tc.assertFn(t, loaded, err)
+		})
 	}
-
-	t.Logf("Empty load test passed: correctly handled missing file")
 }
 
 func TestFileStorageDelete(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "tui-roulette-test-delete-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	configDir := filepath.Join(tempDir, ".config", "tui-roulette")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		t.Fatalf("Failed to create config dir: %v", err)
-	}
-
-	storage := &FileStorage{
-		filePath: filepath.Join(configDir, "roulettes.json"),
-	}
-
-	// Create and save
-	roulette1 := NewRoulette("Roulette 1", ModeRepeatableWinners)
-	roulette2 := NewRoulette("Roulette 2", ModeNoRepeatWinners)
-	original := []*Roulette{roulette1, roulette2}
-
-	if err := storage.Save(original); err != nil {
-		t.Fatalf("Failed to save: %v", err)
+	testCases := map[string]struct {
+		setupData     func(t *testing.T) ([]*Roulette, string)
+		expectedNames []string
+	}{
+		"it should delete the roulette by id": {
+			setupData: func(t *testing.T) ([]*Roulette, string) {
+				roulette1 := NewRoulette("Roulette 1", ModeRepeatableWinners)
+				roulette2 := NewRoulette("Roulette 2", ModeNoRepeatWinners)
+				return []*Roulette{roulette1, roulette2}, roulette1.ID()
+			},
+			expectedNames: []string{"Roulette 2"},
+		},
 	}
 
-	// Store ID for later deletion
-	idToDelete := roulette1.ID()
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			storage := newTestStorage(t)
+			original, idToDelete := tc.setupData(t)
 
-	// Delete
-	if err := storage.Delete(idToDelete); err != nil {
-		t.Fatalf("Failed to delete: %v", err)
+			err := storage.Save(original)
+			assert.NoError(t, err)
+
+			err = storage.Delete(idToDelete)
+			assert.NoError(t, err)
+
+			loaded, err := storage.Load()
+			assert.NoError(t, err)
+			assert.Len(t, loaded, len(tc.expectedNames))
+
+			for i, expectedName := range tc.expectedNames {
+				assert.Equal(t, expectedName, loaded[i].Name())
+			}
+		})
+	}
+}
+
+func TestFileStorageUpdatePersistedRoulette(t *testing.T) {
+	testCases := map[string]struct {
+		setupData         func(t *testing.T) []*Roulette
+		updatePersisted   func(t *testing.T, loaded []*Roulette)
+		assertAfterReload func(t *testing.T, loaded []*Roulette)
+	}{
+		"it should persist updates after loading and saving again": {
+			setupData: func(t *testing.T) []*Roulette {
+				r := NewRoulette("Daily Standup", ModeRepeatableWinners)
+				assert.NoError(t, r.AddParticipant(NewParticipant("Alice")))
+				assert.NoError(t, r.AddParticipant(NewParticipant("Bob")))
+				return []*Roulette{r}
+			},
+			updatePersisted: func(t *testing.T, loaded []*Roulette) {
+				assert.Len(t, loaded, 1)
+				assert.NoError(t, loaded[0].AddParticipant(NewParticipant("Carol")))
+				assert.NoError(t, loaded[0].Spin())
+			},
+			assertAfterReload: func(t *testing.T, loaded []*Roulette) {
+				assert.Len(t, loaded, 1)
+				assert.Equal(t, "Daily Standup", loaded[0].Name())
+				assert.Len(t, loaded[0].Participants(), 3)
+				assert.Len(t, loaded[0].Winners(), 1)
+
+				participantNames := []string{}
+				for _, p := range loaded[0].Participants() {
+					participantNames = append(participantNames, p.Name())
+				}
+				assert.ElementsMatch(t, []string{"Alice", "Bob", "Carol"}, participantNames)
+			},
+		},
 	}
 
-	// Load and verify deletion
-	loaded, err := storage.Load()
-	if err != nil {
-		t.Fatalf("Failed to load after delete: %v", err)
-	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			storage := newTestStorage(t)
+			original := tc.setupData(t)
 
-	if len(loaded) != 1 {
-		t.Fatalf("Expected 1 roulette after deletion, got %d", len(loaded))
-	}
+			err := storage.Save(original)
+			assert.NoError(t, err)
 
-	if loaded[0].Name() != "Roulette 2" {
-		t.Fatalf("Expected remaining roulette to be 'Roulette 2', got '%s'", loaded[0].Name())
-	}
+			loaded, err := storage.Load()
+			assert.NoError(t, err)
 
-	t.Logf("Delete test passed: successfully deleted and reloaded")
+			tc.updatePersisted(t, loaded)
+
+			err = storage.Save(loaded)
+			assert.NoError(t, err)
+
+			reloaded, err := storage.Load()
+			assert.NoError(t, err)
+
+			tc.assertAfterReload(t, reloaded)
+		})
+	}
 }
