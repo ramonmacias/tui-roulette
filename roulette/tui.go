@@ -56,6 +56,7 @@ type model struct {
 	spinRouletteIndex   int
 	spinWinnerName      string
 	spinWinnerSlice     int
+	spinPendingWinners  []string
 	spinParticipants    []Participant
 	spinCurrentSlice    int
 	spinTotalSteps      int
@@ -513,12 +514,22 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 	participants := participantsBeforeSpin
 	resultName := ""
 	resultIsWinner := false
+	var pendingWinners []string
 
 	// Winner was produced by this spin.
 	winners := r.Winners()
 	if len(winners) > previousWinnerCount {
-		resultName = winners[len(winners)-1].Name()
 		resultIsWinner = true
+		if r.Mode() == ModeMultiWinner {
+			// Queue all winners for sequential animation.
+			for _, w := range winners[previousWinnerCount:] {
+				pendingWinners = append(pendingWinners, w.Name())
+			}
+			resultName = pendingWinners[0]
+			pendingWinners = pendingWinners[1:]
+		} else {
+			resultName = winners[len(winners)-1].Name()
+		}
 	}
 
 	// Elimination mode can produce an eliminated participant instead of a winner.
@@ -559,6 +570,7 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 	m.spinRouletteIndex = m.selectedRoulette
 	m.spinWinnerName = resultName
 	m.spinWinnerSlice = winnerIndex
+	m.spinPendingWinners = pendingWinners
 	m.spinParticipants = participantsBeforeSpin
 	m.spinCurrentSlice = startIndex
 	m.spinTotalSteps = totalSteps
@@ -592,15 +604,48 @@ func (m model) advanceSpin() (model, tea.Cmd) {
 	m.spinStep++
 
 	if m.spinStep >= m.spinTotalSteps {
+		m.spinCurrentSlice = m.spinWinnerSlice
+		m.lastWinners[m.spinRouletteIndex] = m.spinWinnerName
+
+		// If there are more winners to animate, chain the next spin animation.
+		if m.spinOutcomeWinner && len(m.spinPendingWinners) > 0 {
+			nextName := m.spinPendingWinners[0]
+			m.spinPendingWinners = m.spinPendingWinners[1:]
+
+			nextIndex := -1
+			for i, p := range participants {
+				if p.Name() == nextName {
+					nextIndex = i
+					break
+				}
+			}
+
+			if nextIndex < 0 {
+				// Fallback: just finish if winner index not found.
+				m.spinPendingWinners = nil
+			} else {
+				spins := rand.IntN(3) + 3
+				totalSteps := spins*len(participants) + ((nextIndex - m.spinCurrentSlice + len(participants)) % len(participants))
+				if totalSteps == 0 {
+					totalSteps = len(participants)
+				}
+				m.spinWinnerName = nextName
+				m.spinWinnerSlice = nextIndex
+				m.spinTotalSteps = totalSteps
+				m.spinStep = 0
+				m.infoMessage = fmt.Sprintf("Spinning %s...", m.roulettes[m.spinRouletteIndex].Name())
+				return m, spinTickCmd(m.spinToken, spinDelay(0, totalSteps))
+			}
+		}
+
 		m.spinning = false
 		m.spinParticipants = nil
-		m.spinCurrentSlice = m.spinWinnerSlice
+		m.spinPendingWinners = nil
 		m.spinVisibleWinners = 0
 		m.spinVisibleElim = 0
 		if m.spinOutcomeWinner {
-			m.lastWinners[m.spinRouletteIndex] = m.spinWinnerName
 			r := m.roulettes[m.spinRouletteIndex]
-			newWinners := r.Winners()[m.spinVisibleWinners:]
+			newWinners := r.Winners()
 			if len(newWinners) > 1 {
 				names := make([]string, len(newWinners))
 				for i, w := range newWinners {
