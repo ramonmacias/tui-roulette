@@ -211,7 +211,7 @@ func (r *Roulette) spinModeMultiWinner() error {
 		return errors.New("we cannot config a multi winner counter equal or bigger than the number of participants")
 	}
 
-	candidates := r.participants
+	candidates := append([]Participant(nil), r.participants...)
 	for i := 0; i < r.multiWinnerCounter; i++ {
 		winner := r.pickRandomParticipant(candidates)
 		r.winners = append(r.winners, winner)

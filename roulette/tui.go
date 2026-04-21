@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,7 @@ type screenMode int
 const (
 	modeBrowse screenMode = iota
 	modeCreateRoulette
+	modeCreateMultiWinnerCount
 	modeAddParticipant
 )
 
@@ -45,6 +47,7 @@ type model struct {
 	roulettes           []*Roulette
 	selectedRoulette    int
 	selectedParticipant int
+	createName          string
 	createMode          Mode
 	createMultiCount    int
 	lastWinners         map[int]string
@@ -75,8 +78,9 @@ func InitialModel() tea.Model {
 		roulettes:           []*Roulette{},
 		selectedRoulette:    0,
 		selectedParticipant: 0,
+		createName:          "",
 		createMode:          ModeRepeatableWinners,
-		createMultiCount:    2,
+		createMultiCount:    0,
 		lastWinners:         map[int]string{},
 		focus:               focusRoulettes,
 		mode:                modeCreateRoulette,
@@ -116,6 +120,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.mode {
 		case modeCreateRoulette:
 			m = m.updateCreateRoulette(key)
+		case modeCreateMultiWinnerCount:
+			m = m.updateCreateMultiWinnerCount(key)
 		case modeAddParticipant:
 			m = m.updateAddParticipant(key)
 		default:
@@ -233,26 +239,10 @@ func (m model) updateCreateRoulette(key string) model {
 	switch key {
 	case "tab":
 		m.createMode = nextMode(m.createMode)
-		if m.createMode == ModeMultiWinner && m.createMultiCount < 2 {
-			m.createMultiCount = 2
-		}
-		m.infoMessage = fmt.Sprintf("Creation mode: %s", renderModeLabel(m.createMode, m.createMultiCount))
+		m.infoMessage = fmt.Sprintf("Creation mode: %s", renderModeLabel(m.createMode, 0))
 	case "shift+tab", "backtab":
 		m.createMode = prevMode(m.createMode)
-		if m.createMode == ModeMultiWinner && m.createMultiCount < 2 {
-			m.createMultiCount = 2
-		}
-		m.infoMessage = fmt.Sprintf("Creation mode: %s", renderModeLabel(m.createMode, m.createMultiCount))
-	case "up", "k", "+":
-		if m.createMode == ModeMultiWinner {
-			m.createMultiCount++
-			m.infoMessage = fmt.Sprintf("Multi-winner count: %d", m.createMultiCount)
-		}
-	case "down", "j", "-":
-		if m.createMode == ModeMultiWinner {
-			m.createMultiCount = max(2, m.createMultiCount-1)
-			m.infoMessage = fmt.Sprintf("Multi-winner count: %d", m.createMultiCount)
-		}
+		m.infoMessage = fmt.Sprintf("Creation mode: %s", renderModeLabel(m.createMode, 0))
 	case "esc":
 		if len(m.roulettes) > 0 {
 			m.mode = modeBrowse
@@ -265,19 +255,24 @@ func (m model) updateCreateRoulette(key string) model {
 			return m
 		}
 
-		opts := []Option{}
 		if m.createMode == ModeMultiWinner {
-			opts = append(opts, WithMultiWinnerCounter(m.createMultiCount))
+			m.createName = name
+			m.mode = modeCreateMultiWinnerCount
+			m.input = ""
+			m.infoMessage = "Type the number of winners and press enter."
+			return m
 		}
 
+		opts := []Option{}
 		m.roulettes = append(m.roulettes, NewRoulette(name, m.createMode, opts...))
 		m.selectedRoulette = len(m.roulettes) - 1
 		m.selectedParticipant = 0
 		m.focus = focusParticipants
 		m.mode = modeAddParticipant
 		m.input = ""
+		m.createName = ""
 		m.createMode = ModeRepeatableWinners
-		m.createMultiCount = 2
+		m.createMultiCount = 0
 		m.infoMessage = fmt.Sprintf("Roulette %s created with mode %s. Add participants and press esc when done.", name, renderModeLabel(m.roulettes[m.selectedRoulette].Mode(), m.roulettes[m.selectedRoulette].MultiWinnerCounter()))
 	case "backspace":
 		m.input = deleteLastRune(m.input)
@@ -285,6 +280,41 @@ func (m model) updateCreateRoulette(key string) model {
 		m.input += " "
 	default:
 		m.input = appendInput(m.input, key)
+	}
+
+	return m
+}
+
+func (m model) updateCreateMultiWinnerCount(key string) model {
+	switch key {
+	case "esc":
+		m.mode = modeCreateRoulette
+		m.input = m.createName
+		m.infoMessage = "Type a roulette name and press enter."
+	case "enter":
+		count, err := strconv.Atoi(strings.TrimSpace(m.input))
+		if err != nil || count <= 0 {
+			m.errorMessage = "Winner count must be a positive number."
+			return m
+		}
+
+		m.createMultiCount = count
+		m.roulettes = append(m.roulettes, NewRoulette(m.createName, ModeMultiWinner, WithMultiWinnerCounter(m.createMultiCount)))
+		m.selectedRoulette = len(m.roulettes) - 1
+		m.selectedParticipant = 0
+		m.focus = focusParticipants
+		m.mode = modeAddParticipant
+		m.input = ""
+		m.infoMessage = fmt.Sprintf("Roulette %s created with mode %s. Add participants and press esc when done.", m.createName, renderModeLabel(m.roulettes[m.selectedRoulette].Mode(), m.roulettes[m.selectedRoulette].MultiWinnerCounter()))
+		m.createName = ""
+		m.createMode = ModeRepeatableWinners
+		m.createMultiCount = 0
+	case "backspace":
+		m.input = deleteLastRune(m.input)
+	default:
+		if len([]rune(key)) == 1 && key >= "0" && key <= "9" {
+			m.input += key
+		}
 	}
 
 	return m
@@ -463,6 +493,11 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 		return m, nil
 	}
 
+	if r.Mode() == ModeMultiWinner {
+		r.Reset()
+		delete(m.lastWinners, m.selectedRoulette)
+	}
+
 	previousWinnerCount := len(r.Winners())
 	previousEliminatedCount := len(r.Eliminated())
 
@@ -564,7 +599,17 @@ func (m model) advanceSpin() (model, tea.Cmd) {
 		m.spinVisibleElim = 0
 		if m.spinOutcomeWinner {
 			m.lastWinners[m.spinRouletteIndex] = m.spinWinnerName
-			m.infoMessage = fmt.Sprintf("🎉 %s won in %s", m.spinWinnerName, m.roulettes[m.spinRouletteIndex].Name())
+			r := m.roulettes[m.spinRouletteIndex]
+			newWinners := r.Winners()[m.spinVisibleWinners:]
+			if len(newWinners) > 1 {
+				names := make([]string, len(newWinners))
+				for i, w := range newWinners {
+					names[i] = w.Name()
+				}
+				m.infoMessage = fmt.Sprintf("🎉 %s won in %s", strings.Join(names, ", "), r.Name())
+			} else {
+				m.infoMessage = fmt.Sprintf("🎉 %s won in %s", m.spinWinnerName, r.Name())
+			}
 		} else {
 			delete(m.lastWinners, m.spinRouletteIndex)
 			m.infoMessage = fmt.Sprintf("✕ %s was eliminated in %s", m.spinWinnerName, m.roulettes[m.spinRouletteIndex].Name())
@@ -799,13 +844,21 @@ func (m model) renderEliminated() string {
 func (m model) renderPrompt() string {
 	switch m.mode {
 	case modeCreateRoulette:
-		modeText := renderModeLabel(m.createMode, m.createMultiCount)
+		modeText := renderModeLabel(m.createMode, 0)
 		return fmt.Sprintf(
 			"%s %s %s %s",
 			paint("New roulette name:", ansiFgAccent),
 			paint(fmt.Sprintf("%s_", m.input), ansiBgSurface, ansiFgBase),
 			paint("mode:", ansiFgMuted),
 			paint(modeText, ansiFgAccent2, ansiBold),
+		)
+	case modeCreateMultiWinnerCount:
+		return fmt.Sprintf(
+			"%s %s %s %s",
+			paint("Roulette:", ansiFgMuted),
+			paint(m.createName, ansiBold),
+			paint("winners:", ansiFgAccent),
+			paint(fmt.Sprintf("%s_", m.input), ansiBgSurface, ansiFgBase),
 		)
 	case modeAddParticipant:
 		roulette := m.currentRoulette()
@@ -826,7 +879,9 @@ func (m model) renderPrompt() string {
 func (m model) renderHelp() string {
 	switch m.mode {
 	case modeCreateRoulette:
-		return "type name • tab/shift+tab cycle mode • ↑/↓ set multi count • enter create roulette • esc cancel • q quit"
+		return "type name • tab/shift+tab cycle mode • enter continue • esc cancel • q quit"
+	case modeCreateMultiWinnerCount:
+		return "type winners count • enter create roulette • esc back • q quit"
 	case modeAddParticipant:
 		return "enter add participant • esc finish • q quit"
 	default:

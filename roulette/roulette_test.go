@@ -359,6 +359,10 @@ func TestSpinModeMultiWinnerRoulette(t *testing.T) {
 			}(),
 			assertWinner: func(r *roulette.Roulette) {
 				assert.Len(t, r.Winners(), 2)
+				assert.Len(t, r.Participants(), 3)
+				assert.Equal(t, "John", r.Participants()[0].Name())
+				assert.Equal(t, "Alfred", r.Participants()[1].Name())
+				assert.Equal(t, "Ramon", r.Participants()[2].Name())
 			},
 		},
 	}
