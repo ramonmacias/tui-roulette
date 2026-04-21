@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"roulette/roulette"
+	roulette "roulette/internal"
 
 	tea "charm.land/bubbletea/v2"
 )

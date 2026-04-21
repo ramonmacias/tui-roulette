@@ -1,8 +1,8 @@
-package roulette_test
+package internal_test
 
 import (
 	"errors"
-	"roulette/roulette"
+	roulette "roulette/internal"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
