@@ -39,6 +39,9 @@ type Roulette struct {
 	mode         Mode
 	participants []Participant
 	winners      []Participant
+	// keeps the list of participant that were disable to participate
+	// in the next roulette spin
+	disabled []Participant
 	// only used for the elimination mode to keep track on who is already
 	// being eliminated
 	eliminated []Participant
@@ -55,6 +58,7 @@ func NewRoulette(name string, mode Mode, opts ...Option) *Roulette {
 		mode:         mode,
 		participants: []Participant{},
 		winners:      []Participant{},
+		disabled:     []Participant{},
 	}
 
 	for _, opt := range opts {
@@ -111,21 +115,46 @@ func (r *Roulette) RemoveParticipant(p Participant) error {
 	return nil
 }
 
+// DisableParticipant adds the given participant into the slice of disabled.
+func (r *Roulette) DisableParticipant(p Participant) {
+	if !slices.ContainsFunc(r.disabled, existingParticipant(p)) {
+		r.disabled = append(r.disabled, p)
+	}
+}
+
+// Removes the given participant from the slice of disabled.
+func (r *Roulette) EnableParticipant(p Participant) {
+	r.disabled = slices.DeleteFunc(r.disabled, existingParticipant(p))
+}
+
 // Participants returns the current list of participants in the roulette.
-// The list will be adapted based on the roulette mode.
 func (r *Roulette) Participants() []Participant {
+	return r.participants
+}
+
+// Candidates returns the slice of participants that will efectively be eligible
+// for be the selected one after we spin the roulette.
+func (r *Roulette) Candidates() []Participant {
+	excluded := r.disabled
 	switch r.mode {
 	case ModeNoRepeatWinners:
-		return r.filterCandidates(r.winners)
-	case ModeRepeatableWinners:
-		return r.participants
+		excluded = append(excluded, r.winners...)
 	case ModeElimination:
-		return r.filterCandidates(r.eliminated)
-	case ModeMultiWinner:
-		return r.participants
-	default:
-		return r.participants
+		excluded = append(excluded, r.eliminated...)
 	}
+
+	var candidates []Participant
+	for _, p := range r.participants {
+		if !slices.ContainsFunc(excluded, existingParticipant(p)) {
+			candidates = append(candidates, p)
+		}
+	}
+	return candidates
+}
+
+// Disabled returns the current list of participants that are excluded from being candidates.
+func (r *Roulette) Disabled() []Participant {
+	return r.disabled
 }
 
 // Winners returns the current list of participants that won during that roulette spins.
@@ -167,7 +196,7 @@ func (r *Roulette) Spin() error {
 
 // spinModeNoRepeatWinners selects a random participant who has never won before.
 func (r *Roulette) spinModeNoRepeatWinners() error {
-	candidates := r.filterCandidates(r.winners)
+	candidates := r.Candidates()
 	if len(candidates) == 0 {
 		return errors.New("no more winners left")
 	}
@@ -179,7 +208,8 @@ func (r *Roulette) spinModeNoRepeatWinners() error {
 
 // spinModeRepeatableWinners selects a random participant allowing the same person to win multiple times.
 func (r *Roulette) spinModeRepeatableWinners() error {
-	winner := r.pickRandomParticipant(r.participants)
+	candidates := r.Candidates()
+	winner := r.pickRandomParticipant(candidates)
 	r.winners = append(r.winners, winner)
 	return nil
 }
@@ -187,7 +217,7 @@ func (r *Roulette) spinModeRepeatableWinners() error {
 // spinModeElimination progressively eliminates participants until only one remains as the final winner.
 // Subsequent spins after a winner is determined will return an error.
 func (r *Roulette) spinModeElimination() error {
-	candidates := r.filterCandidates(r.eliminated)
+	candidates := r.Candidates()
 	if len(candidates) == 0 {
 		return errors.New("all participants have been eliminated")
 	}
@@ -216,7 +246,7 @@ func (r *Roulette) spinModeMultiWinner() error {
 		return errors.New("we cannot config a multi winner counter equal or bigger than the number of participants")
 	}
 
-	candidates := append([]Participant(nil), r.participants...)
+	candidates := append([]Participant(nil), r.Candidates()...)
 	for i := 0; i < r.multiWinnerCounter; i++ {
 		winner := r.pickRandomParticipant(candidates)
 		r.winners = append(r.winners, winner)
@@ -229,17 +259,6 @@ func (r *Roulette) spinModeMultiWinner() error {
 func (r *Roulette) pickRandomParticipant(candidates []Participant) Participant {
 	idx := rand.IntN(len(candidates))
 	return candidates[idx]
-}
-
-// filterCandidates returns participants not in the exclusion list.
-func (r *Roulette) filterCandidates(exclude []Participant) []Participant {
-	var candidates []Participant
-	for _, p := range r.participants {
-		if !slices.ContainsFunc(exclude, existingParticipant(p)) {
-			candidates = append(candidates, p)
-		}
-	}
-	return candidates
 }
 
 // Participant represents a person that can be added to a roulette.

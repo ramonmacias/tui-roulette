@@ -248,9 +248,46 @@ func (m model) updateBrowse(key string) (model, tea.Cmd) {
 		m.resetCurrentRoulette()
 	case "d", "x", "backspace":
 		m.removeCurrentParticipant()
+	case "space":
+		m.toggleCurrentParticipant()
 	}
 
 	return m, nil
+}
+
+func (m *model) toggleCurrentParticipant() {
+	if m.focus != focusParticipants {
+		m.errorMessage = "Switch to the participants panel to enable/disable someone."
+		return
+	}
+
+	r := m.currentRoulette()
+	participant := m.currentParticipant()
+	if r == nil || participant == nil {
+		m.errorMessage = "Select a participant to toggle."
+		return
+	}
+
+	disabled := r.Disabled()
+	isDisabled := false
+	for _, d := range disabled {
+		if d.Name() == participant.Name() {
+			isDisabled = true
+			break
+		}
+	}
+
+	if isDisabled {
+		r.EnableParticipant(*participant)
+		m.infoMessage = fmt.Sprintf("%s is now enabled.", participant.Name())
+	} else {
+		r.DisableParticipant(*participant)
+		m.infoMessage = fmt.Sprintf("%s is now disabled.", participant.Name())
+	}
+
+	if m.storage != nil {
+		m.storage.Save(m.roulettes)
+	}
 }
 
 func (m model) updateCreateRoulette(key string) model {
@@ -517,7 +554,7 @@ func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
 		return m, nil
 	}
 
-	participantsBeforeSpin := append([]Participant(nil), r.Participants()...)
+	participantsBeforeSpin := append([]Participant(nil), r.Candidates()...)
 	if len(participantsBeforeSpin) == 0 {
 		m.errorMessage = "cannot spin roulette without participants"
 		return m, nil
@@ -621,7 +658,7 @@ func (m model) advanceSpin() (model, tea.Cmd) {
 
 	participants := m.spinParticipants
 	if len(participants) == 0 {
-		participants = m.roulettes[m.spinRouletteIndex].Participants()
+		participants = m.roulettes[m.spinRouletteIndex].Candidates()
 	}
 	if len(participants) == 0 {
 		m.spinning = false
@@ -700,7 +737,7 @@ func (m model) renderWheel() string {
 		return paint("Create a roulette to display the wheel.", ansiFgMuted)
 	}
 
-	participants := r.Participants()
+	participants := r.Candidates()
 	if m.spinning && m.spinRouletteIndex == m.selectedRoulette && len(m.spinParticipants) > 0 {
 		participants = m.spinParticipants
 	}
@@ -811,13 +848,19 @@ func (m model) renderRoulettes() string {
 	for index, roulette := range m.roulettes {
 		marker := m.marker(m.focus == focusRoulettes, m.selectedRoulette == index)
 		modeText := renderModeLabel(roulette.Mode(), roulette.MultiWinnerCounter())
+		total := len(roulette.Participants())
+		candidates := len(roulette.Candidates())
+		countText := fmt.Sprintf("(%d participants)", total)
+		if candidates < total {
+			countText = fmt.Sprintf("(%d/%d candidates)", candidates, total)
+		}
 		fmt.Fprintf(
 			&s,
 			"%s %s %s %s\n",
 			marker,
 			paint(roulette.Name(), ansiBold),
 			paint(fmt.Sprintf("[%s]", modeText), ansiFgAccent2),
-			paint(fmt.Sprintf("(%d participants)", len(roulette.Participants())), ansiFgMuted),
+			paint(countText, ansiFgMuted),
 		)
 	}
 
@@ -840,9 +883,23 @@ func (m model) renderParticipants() string {
 		return s.String()
 	}
 
+	disabled := r.Disabled()
+	isDisabled := func(p Participant) bool {
+		for _, d := range disabled {
+			if d.Name() == p.Name() {
+				return true
+			}
+		}
+		return false
+	}
+
 	for index, participant := range r.Participants() {
 		marker := m.marker(m.focus == focusParticipants, m.selectedParticipant == index)
-		fmt.Fprintf(&s, "%s %s\n", marker, participant.Name())
+		if isDisabled(participant) {
+			fmt.Fprintf(&s, "%s %s %s\n", marker, paint(participant.Name(), ansiDim, ansiFgMuted), paint("[disabled]", ansiDim, ansiFgMuted))
+		} else {
+			fmt.Fprintf(&s, "%s %s\n", marker, participant.Name())
+		}
 	}
 
 	return s.String()
@@ -962,7 +1019,7 @@ func (m model) renderHelp() string {
 		if m.spinning {
 			return "spinning... please wait • q quit"
 		}
-		return "n new roulette • a add participant • d remove participant • s spin roulette • r reset winners • tab/←/→ switch panel • ↑/↓ move • q quit"
+		return "n new roulette • a add participant • d remove participant • space enable/disable participant • s spin roulette • r reset winners • tab/←/→ switch panel • ↑/↓ move • q quit"
 	}
 }
 

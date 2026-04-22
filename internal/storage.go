@@ -10,12 +10,13 @@ import (
 
 // rouletteDTO is the JSON-serializable representation of Roulette.
 type rouletteDTO struct {
-	ID                 uuid.UUID        `json:"id"`
+	ID                 string           `json:"id"`
 	Name               string           `json:"name"`
 	Mode               Mode             `json:"mode"`
 	Participants       []participantDTO `json:"participants"`
 	Winners            []participantDTO `json:"winners"`
 	Eliminated         []participantDTO `json:"eliminated"`
+	Disabled           []participantDTO `json:"disabled"`
 	MultiWinnerCounter int              `json:"multiWinnerCounter"`
 }
 
@@ -42,21 +43,32 @@ func toDTO(r *Roulette) rouletteDTO {
 		eliminated[i] = participantDTO{ID: p.id, Name: p.name}
 	}
 
+	disabled := make([]participantDTO, len(r.disabled))
+	for i, p := range r.disabled {
+		disabled[i] = participantDTO{ID: p.id, Name: p.name}
+	}
+
 	return rouletteDTO{
-		ID:                 r.id,
+		ID:                 r.id.String(),
 		Name:               r.name,
 		Mode:               r.mode,
 		Participants:       participants,
 		Winners:            winners,
 		Eliminated:         eliminated,
+		Disabled:           disabled,
 		MultiWinnerCounter: r.multiWinnerCounter,
 	}
 }
 
 // fromDTO converts a DTO to a Roulette.
 func fromDTO(dto rouletteDTO) (*Roulette, error) {
+	id, err := uuid.Parse(dto.ID)
+	if err != nil {
+		return nil, err
+	}
+
 	r := &Roulette{
-		id:                 dto.ID,
+		id:                 id,
 		name:               dto.Name,
 		mode:               dto.Mode,
 		multiWinnerCounter: dto.MultiWinnerCounter,
@@ -75,6 +87,11 @@ func fromDTO(dto rouletteDTO) (*Roulette, error) {
 	r.eliminated = make([]Participant, len(dto.Eliminated))
 	for i, pdto := range dto.Eliminated {
 		r.eliminated[i] = Participant{id: pdto.ID, name: pdto.Name}
+	}
+
+	r.disabled = make([]Participant, len(dto.Disabled))
+	for i, pdto := range dto.Disabled {
+		r.disabled[i] = Participant{id: pdto.ID, name: pdto.Name}
 	}
 
 	return r, nil
