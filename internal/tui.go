@@ -72,6 +72,9 @@ type model struct {
 	errorMessage        string
 	infoMessage         string
 	storage             Storage
+	showSpinPopup       bool
+	planColor           string
+	planRouletteID      string
 }
 
 // InitialModel builds the Bubble Tea model used by the roulette TUI.
@@ -91,6 +94,11 @@ func InitialModel(storage Storage) tea.Model {
 		screenMode = modeBrowse
 	}
 
+	planRouletteID := ""
+	if len(roulettes) > 0 {
+		planRouletteID = roulettes[0].ID()
+	}
+
 	return model{
 		roulettes:           roulettes,
 		selectedRoulette:    0,
@@ -103,6 +111,8 @@ func InitialModel(storage Storage) tea.Model {
 		mode:                screenMode,
 		infoMessage:         infoMsg,
 		storage:             storage,
+		planColor:           randomPlanColor(),
+		planRouletteID:      planRouletteID,
 	}
 }
 
@@ -135,6 +145,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.clearMessages()
 
+		if m.mode == modeBrowse && m.showSpinPopup {
+			var cmd tea.Cmd
+			m, cmd = m.updateSpinPopup(key)
+			return m, cmd
+		}
+
 		switch m.mode {
 		case modeCreateRoulette:
 			m = m.updateCreateRoulette(key)
@@ -154,33 +170,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() tea.View {
 	var s strings.Builder
-	s.WriteString(paint(" ROULETTE MANAGER ", ansiBold, ansiBgSurface2, ansiFgAccent))
+	contentWidth := max(72, min(118, m.width-4))
+	if m.width <= 0 {
+		contentWidth = 96
+	}
+
+	s.WriteString(centerLines(m.renderTopBar(), contentWidth))
+	s.WriteString("\n\n")
+	s.WriteString(centerLines(m.renderRouletteLogo(), contentWidth))
+	s.WriteString("\n\n")
+	s.WriteString(centerLines(panel("INPUT", m.renderPrompt()), contentWidth))
 	s.WriteString("\n\n")
 
 	if m.errorMessage != "" {
-		fmt.Fprintf(&s, "%s %s\n\n", paint("✕", ansiFgDanger, ansiBold), paint(m.errorMessage, ansiFgDanger))
+		msg := fmt.Sprintf("%s %s", paint("✕", ansiFgDanger, ansiBold), paint(m.errorMessage, ansiFgDanger))
+		s.WriteString(centerLines(msg, contentWidth))
+		s.WriteString("\n\n")
 	}
 
 	if m.infoMessage != "" {
-		fmt.Fprintf(&s, "%s %s\n\n", paint("●", ansiFgSuccess, ansiBold), paint(m.infoMessage, ansiFgAccent2))
+		msg := fmt.Sprintf("%s %s", paint("●", ansiFgSuccess, ansiBold), paint(m.infoMessage, ansiFgAccent2))
+		s.WriteString(centerLines(msg, contentWidth))
+		s.WriteString("\n\n")
 	}
 
-	s.WriteString(panel("ROULETTES", m.renderRoulettes()))
+	s.WriteString(centerLines(m.renderDashboard(), contentWidth))
 	s.WriteString("\n")
-	s.WriteString(panel("PARTICIPANTS", m.renderParticipants()))
-	s.WriteString("\n")
-	s.WriteString(panel("ROULETTE", m.renderWheel()))
-	s.WriteString("\n")
-	s.WriteString(panel("WINNERS", m.renderWinners()))
-	s.WriteString("\n")
-	r := m.currentRoulette()
-	if r != nil && r.Mode() == ModeElimination {
-		s.WriteString(panel("ELIMINATED", m.renderEliminated()))
+	if m.showSpinPopup {
+		s.WriteString(centerLines(m.renderSpinPopup(), contentWidth))
 		s.WriteString("\n")
 	}
-	s.WriteString(panel("INPUT", m.renderPrompt()))
-	s.WriteString("\n")
-	s.WriteString(paint(m.renderHelp(), ansiDim, ansiFgMuted))
+
+	helpWidth := max(36, min(88, contentWidth-2))
+	wrappedHelp := wrapText(m.renderHelp(), helpWidth)
+	s.WriteString(centerLines(paint(wrappedHelp, ansiDim, ansiFgMuted), contentWidth))
 
 	content := centerBlock(s.String(), m.width, m.height)
 	v := tea.NewView(paint(content, ansiFgBase))
@@ -243,7 +266,11 @@ func (m model) updateBrowse(key string) (model, tea.Cmd) {
 	case "down", "j":
 		m.moveSelection(1)
 	case "s":
-		return m.startSpinCurrentRoulette()
+		next, cmd := m.startSpinCurrentRoulette()
+		if cmd != nil {
+			next.showSpinPopup = true
+		}
+		return next, cmd
 	case "r":
 		m.resetCurrentRoulette()
 	case "d", "x", "backspace":
@@ -253,6 +280,27 @@ func (m model) updateBrowse(key string) (model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m model) updateSpinPopup(key string) (model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.showSpinPopup = false
+		m.spinning = false
+		m.spinParticipants = nil
+		m.spinPendingWinners = nil
+		m.spinVisibleWinners = 0
+		m.spinVisibleElim = 0
+		m.infoMessage = "Spin popup closed."
+		return m, nil
+	case "s":
+		if m.spinning {
+			return m, nil
+		}
+		return m.startSpinCurrentRoulette()
+	default:
+		return m, nil
+	}
 }
 
 func (m *model) toggleCurrentParticipant() {
@@ -321,6 +369,7 @@ func (m model) updateCreateRoulette(key string) model {
 		opts := []Option{}
 		m.roulettes = append(m.roulettes, NewRoulette(name, m.createMode, opts...))
 		m.selectedRoulette = len(m.roulettes) - 1
+		m.refreshPlanColor()
 		m.selectedParticipant = 0
 		m.focus = focusParticipants
 		m.mode = modeAddParticipant
@@ -359,6 +408,7 @@ func (m model) updateCreateMultiWinnerCount(key string) model {
 		m.createMultiCount = count
 		m.roulettes = append(m.roulettes, NewRoulette(m.createName, ModeMultiWinner, WithMultiWinnerCounter(m.createMultiCount)))
 		m.selectedRoulette = len(m.roulettes) - 1
+		m.refreshPlanColor()
 		m.selectedParticipant = 0
 		m.focus = focusParticipants
 		m.mode = modeAddParticipant
@@ -448,6 +498,7 @@ func (m *model) moveSelection(step int) {
 	}
 
 	m.selectedRoulette = clamp(m.selectedRoulette+step, 0, len(m.roulettes)-1)
+	m.refreshPlanColor()
 	r := m.currentRoulette()
 	if r == nil || len(r.Participants()) == 0 {
 		m.selectedParticipant = 0
@@ -732,6 +783,10 @@ func (m model) advanceSpin() (model, tea.Cmd) {
 }
 
 func (m model) renderWheel() string {
+	return m.renderWheelWithCanvas(64, 40)
+}
+
+func (m model) renderWheelWithCanvas(canvasWidth int, canvasHeight int) string {
 	r := m.currentRoulette()
 	if r == nil {
 		return paint("Create a roulette to display the wheel.", ansiFgMuted)
@@ -742,9 +797,6 @@ func (m model) renderWheel() string {
 		participants = m.spinParticipants
 	}
 	n := len(participants)
-
-	const canvasWidth = 64  // braille sub-pixels (2 per text cell)
-	const canvasHeight = 40 // braille sub-pixels (4 per text row)
 
 	type subPixel struct {
 		on    bool
@@ -834,6 +886,134 @@ func (m model) renderWheel() string {
 	}
 
 	return centerLines(out.String(), minPanelInnerWidth-2)
+}
+
+func (m model) renderSpinPopup() string {
+	r := m.currentRoulette()
+	if r == nil {
+		return ""
+	}
+
+	status := paint("Press s to spin again • esc to close", ansiFgMuted)
+	if m.spinning {
+		status = paint("Spinning... esc to close", ansiFgAccent2)
+	}
+
+	body := m.renderWheelWithCanvas(92, 56) + "\n\n" + status
+	title := fmt.Sprintf("SPIN POPUP • %s", r.Name())
+	return panel(title, body)
+}
+
+func (m model) renderTopBar() string {
+	modeBar := m.renderModeChips()
+	plan := m.renderAgentPlan()
+
+	return modeBar + strings.Repeat(" ", 6) + plan
+}
+
+func (m model) renderModeChips() string {
+	modes := []Mode{ModeRepeatableWinners, ModeNoRepeatWinners, ModeElimination, ModeMultiWinner}
+	parts := make([]string, 0, len(modes)+1)
+	parts = append(parts, paint("MODE", ansiFgMuted, ansiBold))
+
+	active := m.createMode
+	if m.mode == modeBrowse {
+		r := m.currentRoulette()
+		if r != nil {
+			active = r.Mode()
+		}
+	}
+
+	for _, mode := range modes {
+		chipText := strings.ToUpper(renderModeLabel(mode, m.createMultiCount))
+		chipColor := modeChipColor(mode)
+		if mode == active {
+			parts = append(parts, paint(" "+truncateLabel(chipText, 18)+" ", ansiBold, ansiBgSurface2, chipColor))
+		} else {
+			parts = append(parts, paint(" "+truncateLabel(chipText, 18)+" ", ansiDim, chipColor))
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func (m model) renderAgentPlan() string {
+	r := m.currentRoulette()
+	if r == nil {
+		return paint("ROULETTE: (none)", ansiFgMuted)
+	}
+
+	color := m.planColor
+	if color == "" {
+		color = ansiFgAccent2
+	}
+	return paint("ROULETTE: ", ansiFgMuted) + paint(r.Name(), ansiBold, color)
+}
+
+func (m model) renderRouletteLogo() string {
+	logo := []string{
+		"██████╗  ██████╗ ██╗   ██╗██╗     ███████╗████████╗████████╗███████╗",
+		"██╔══██╗██╔═══██╗██║   ██║██║     ██╔════╝╚══██╔══╝╚══██╔══╝██╔════╝",
+		"██████╔╝██║   ██║██║   ██║██║     █████╗     ██║      ██║   █████╗  ",
+		"██╔══██╗██║   ██║██║   ██║██║     ██╔══╝     ██║      ██║   ██╔══╝  ",
+		"██║  ██║╚██████╔╝╚██████╔╝███████╗███████╗   ██║      ██║   ███████╗",
+		"╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝╚══════╝   ╚═╝      ╚═╝   ╚══════╝",
+	}
+
+	for i := range logo {
+		logo[i] = paint(logo[i], ansiFgAccent, ansiBold)
+	}
+
+	return strings.Join(logo, "\n")
+}
+
+func (m model) renderDashboard() string {
+	var s strings.Builder
+	s.WriteString(panel("ROULETTES", m.renderRoulettes()))
+	s.WriteString("\n")
+	s.WriteString(panel("PARTICIPANTS", m.renderParticipants()))
+	s.WriteString("\n")
+	s.WriteString(panel("WINNERS", m.renderWinners()))
+
+	r := m.currentRoulette()
+	if r != nil && r.Mode() == ModeElimination {
+		s.WriteString("\n")
+		s.WriteString(panel("ELIMINATED", m.renderEliminated()))
+	}
+
+	return s.String()
+}
+
+func (m model) ensurePlanColor() model {
+	r := m.currentRoulette()
+	if r == nil {
+		m.planRouletteID = ""
+		if m.planColor == "" {
+			m.planColor = randomPlanColor()
+		}
+		return m
+	}
+
+	if m.planRouletteID != r.ID() || m.planColor == "" {
+		m.planRouletteID = r.ID()
+		m.planColor = randomPlanColor()
+	}
+
+	return m
+}
+
+func (m *model) refreshPlanColor() {
+	r := m.currentRoulette()
+	if r == nil {
+		m.planRouletteID = ""
+		m.planColor = randomPlanColor()
+		return
+	}
+
+	if m.planRouletteID != r.ID() {
+		m.planRouletteID = r.ID()
+		m.planColor = randomPlanColor()
+	}
 }
 
 func (m model) renderRoulettes() string {
@@ -1019,8 +1199,32 @@ func (m model) renderHelp() string {
 		if m.spinning {
 			return "spinning... please wait • q quit"
 		}
+		if m.showSpinPopup {
+			return "s spin again • esc close popup • q quit"
+		}
 		return "n new roulette • a add participant • d remove participant • space enable/disable participant • s spin roulette • r reset winners • tab/←/→ switch panel • ↑/↓ move • q quit"
 	}
+}
+
+func modeChipColor(mode Mode) string {
+	switch mode {
+	case ModeRepeatableWinners:
+		return "\033[38;2;122;214;163m"
+	case ModeNoRepeatWinners:
+		return "\033[38;2;122;162;255m"
+	case ModeElimination:
+		return "\033[38;2;255;107;107m"
+	case ModeMultiWinner:
+		return "\033[38;2;255;214;170m"
+	default:
+		return ansiFgMuted
+	}
+}
+
+func randomPlanColor() string {
+	h := rand.Float64() * 360.0
+	r, g, b := hsvToRGB(h, 0.60, 0.95)
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
 }
 
 type spinTickMsg struct {
@@ -1198,6 +1402,33 @@ func centerLines(content string, targetWidth int) string {
 	}
 
 	return out.String()
+}
+
+func wrapText(content string, maxWidth int) string {
+	if maxWidth <= 0 || visibleWidth(content) <= maxWidth {
+		return content
+	}
+
+	words := strings.Fields(content)
+	if len(words) == 0 {
+		return content
+	}
+
+	var lines []string
+	line := words[0]
+
+	for _, w := range words[1:] {
+		candidate := line + " " + w
+		if visibleWidth(candidate) <= maxWidth {
+			line = candidate
+			continue
+		}
+		lines = append(lines, line)
+		line = w
+	}
+
+	lines = append(lines, line)
+	return strings.Join(lines, "\n")
 }
 
 func visibleWidth(s string) int {
