@@ -1,13 +1,15 @@
 # TUI Roulette
 
-```text
+<div align="center">
+<pre>
 ██████╗  ██████╗ ██╗   ██╗██╗     ███████╗████████╗████████╗███████╗
 ██╔══██╗██╔═══██╗██║   ██║██║     ██╔════╝╚══██╔══╝╚══██╔══╝██╔════╝
-██████╔╝██║   ██║██║   ██║██║     █████╗     ██║      ██║   █████╗  
-██╔══██╗██║   ██║██║   ██║██║     ██╔══╝     ██║      ██║   ██╔══╝  
+██████╔╝██║   ██║██║   ██║██║     █████╗     ██║      ██║   █████╗
+██╔══██╗██║   ██║██║   ██║██║     ██╔══╝     ██║      ██║   ██╔══╝
 ██║  ██║╚██████╔╝╚██████╔╝███████╗███████╗   ██║      ██║   ███████╗
 ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝╚══════╝   ╚═╝      ╚═╝   ╚══════╝
-```
+</pre>
+</div>
 
 A terminal-first roulette manager built with Go + Bubble Tea.
 
@@ -41,32 +43,41 @@ It supports multiple spin modes, animated spins, participant enable/disable, and
 
 ## Installation
 
-### 1) Clone the repository
+### End users (recommended)
+
+Install with `go install`:
 
 ```bash
-git clone <your-repo-url>
-cd tui-roulette
+go install <your-module-path>@latest
 ```
 
-### 2) Download dependencies
+Then run the installed binary from your shell:
 
 ```bash
-go mod download
+tui-roulette
 ```
 
-(If you vendor dependencies, this may not be necessary.)
+> Replace `<your-module-path>` with the repository module path.
 
-### 3) Build
+### If you already have the source locally
+
+You can also install from the project directory:
 
 ```bash
-go build ./...
+go install .
 ```
 
 ---
 
 ## Run
 
-### Run directly
+### Run installed binary
+
+```bash
+tui-roulette
+```
+
+### Or run directly from source
 
 ```bash
 go run .
@@ -78,7 +89,13 @@ go run .
 ./tui-roulette
 ```
 
-(If your binary name differs, run the generated executable accordingly.)
+---
+
+## Build
+
+```bash
+go build ./...
+```
 
 ---
 
@@ -171,10 +188,18 @@ go test -v ./internal
 Contributions are welcome.
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run formatting and tests
-5. Open a pull request
+2. Clone your fork
+3. Create a feature branch
+4. Make your changes
+5. Run formatting and tests
+6. Open a pull request
+
+Clone example:
+
+```bash
+git clone <your-fork-url>
+cd tui-roulette
+```
 
 ### Suggested local checks before PR
 
