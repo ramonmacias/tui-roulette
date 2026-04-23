@@ -3,7 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
-	roulette "roulette/internal"
+
+	roulette "github.com/ramonmacias/tui-roulette/internal"
 
 	tea "charm.land/bubbletea/v2"
 )

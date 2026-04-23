@@ -2,8 +2,9 @@ package internal_test
 
 import (
 	"errors"
-	roulette "roulette/internal"
 	"testing"
+
+	roulette "github.com/ramonmacias/tui-roulette/internal"
 
 	"github.com/stretchr/testify/assert"
 )

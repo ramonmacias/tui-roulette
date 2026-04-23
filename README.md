@@ -48,7 +48,7 @@ It supports multiple spin modes, animated spins, participant enable/disable, and
 Install with `go install`:
 
 ```bash
-go install <your-module-path>@latest
+go install github.com/ramonmacias/tui-roulette@latest
 ```
 
 Then run the installed binary from your shell:
@@ -56,8 +56,6 @@ Then run the installed binary from your shell:
 ```bash
 tui-roulette
 ```
-
-> Replace `<your-module-path>` with the repository module path.
 
 ### If you already have the source locally
 

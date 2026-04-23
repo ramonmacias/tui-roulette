@@ -1,4 +1,4 @@
-module roulette
+module github.com/ramonmacias/tui-roulette
 
 go 1.24.4
 
