@@ -894,13 +894,8 @@ func (m model) renderSpinPopup() string {
 		return ""
 	}
 
-	status := paint("Press s to spin again • esc to close", ansiFgMuted)
-	if m.spinning {
-		status = paint("Spinning... esc to close", ansiFgAccent2)
-	}
-
-	body := m.renderWheelWithCanvas(92, 56) + "\n\n" + status
-	title := fmt.Sprintf("SPIN POPUP • %s", r.Name())
+	body := m.renderWheelWithCanvas(92, 56)
+	title := fmt.Sprintf("SPIN ROULETTE • %s", r.Name())
 	return panel(title, body)
 }
 
