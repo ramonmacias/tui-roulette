@@ -132,6 +132,145 @@ func TestRemoveRouletteParticipant(t *testing.T) {
 	}
 }
 
+func TestDisableAndEnableParticipants(t *testing.T) {
+	r := roulette.NewRoulette("test-roulette", roulette.ModeRepeatableWinners)
+	john := roulette.NewParticipant("John")
+	ramon := roulette.NewParticipant("Ramon")
+	marcos := roulette.NewParticipant("Marcos")
+	r.AddParticipant(john)
+	r.AddParticipant(ramon)
+	r.AddParticipant(marcos)
+	r.DisableParticipant(marcos)
+
+	testCases := map[string]struct {
+		prepareCase    func(r *roulette.Roulette)
+		assertRoulette func(r *roulette.Roulette)
+	}{
+		"it should not select as winner any disabled participant": {
+			prepareCase: func(r *roulette.Roulette) {
+				r.DisableParticipant(john)
+			},
+			assertRoulette: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 1)
+				assert.Equal(t, "Ramon", r.Winners()[0].Name())
+			},
+		},
+		"it should enable back and put into the roulette candidates the previously disabled participant": {
+			prepareCase: func(r *roulette.Roulette) {
+				r.EnableParticipant(marcos)
+				r.DisableParticipant(ramon)
+				r.DisableParticipant(john)
+			},
+			assertRoulette: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 1)
+				assert.Equal(t, "Marcos", r.Winners()[0].Name())
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			tc.prepareCase(r)
+			r.Reset()
+			r.Spin()
+			tc.assertRoulette(r)
+		})
+	}
+}
+
+func TestCandidates(t *testing.T) {
+	testCases := map[string]struct {
+		roulette         *roulette.Roulette
+		prepareCase      func(r *roulette.Roulette)
+		assertCandidates func(r *roulette.Roulette)
+	}{
+		"we should exclude the winners from the mode no repeat winners": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeNoRepeatWinners)
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Amelie"))
+				r.AddParticipant(roulette.NewParticipant("Tomas"))
+				return r
+			}(),
+			prepareCase: func(r *roulette.Roulette) {
+				err := r.Spin()
+				assert.Nil(t, err)
+			},
+			assertCandidates: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 1)
+				assert.Len(t, r.Candidates(), 2)
+				assert.Len(t, r.Participants(), 3)
+			},
+		},
+		"we should exclude the eliminated from the candidates on the mode elimination": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeElimination)
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Amelie"))
+				r.AddParticipant(roulette.NewParticipant("Tomas"))
+				return r
+			}(),
+			prepareCase: func(r *roulette.Roulette) {
+				err := r.Spin()
+				assert.Nil(t, err)
+			},
+			assertCandidates: func(r *roulette.Roulette) {
+				assert.Len(t, r.Eliminated(), 1)
+				assert.Len(t, r.Candidates(), 2)
+				assert.Len(t, r.Participants(), 3)
+			},
+		},
+		"we should keep having the same candidates even if some of them are already winners on the mode repeat winners": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeRepeatableWinners)
+				r.AddParticipant(roulette.NewParticipant("John"))
+				r.AddParticipant(roulette.NewParticipant("Amelie"))
+				r.AddParticipant(roulette.NewParticipant("Tomas"))
+				return r
+			}(),
+			prepareCase: func(r *roulette.Roulette) {
+				err := r.Spin()
+				assert.Nil(t, err)
+				err = r.Spin()
+				assert.Nil(t, err)
+			},
+			assertCandidates: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 2)
+				assert.Len(t, r.Candidates(), 3)
+				assert.Len(t, r.Participants(), 3)
+			},
+		},
+		"we should exclude from the candidates all the disabled participants": {
+			roulette: func() *roulette.Roulette {
+				r := roulette.NewRoulette("test-roulette", roulette.ModeRepeatableWinners)
+				john := roulette.NewParticipant("John")
+				r.AddParticipant(john)
+				r.AddParticipant(roulette.NewParticipant("Amelie"))
+				r.AddParticipant(roulette.NewParticipant("Tomas"))
+				r.DisableParticipant(john)
+				return r
+			}(),
+			prepareCase: func(r *roulette.Roulette) {
+				err := r.Spin()
+				assert.Nil(t, err)
+			},
+			assertCandidates: func(r *roulette.Roulette) {
+				assert.Len(t, r.Winners(), 1)
+				assert.Len(t, r.Candidates(), 2)
+				assert.Len(t, r.Participants(), 3)
+				assert.Len(t, r.Disabled(), 1)
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			tc.prepareCase(tc.roulette)
+			tc.assertCandidates(tc.roulette)
+		})
+	}
+}
+
 func TestSpinModeRepeatableWinnersRoulette(t *testing.T) {
 	testCases := map[string]struct {
 		roulette     *roulette.Roulette
