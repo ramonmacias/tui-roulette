@@ -10,7 +10,6 @@ import (
 )
 
 func main() {
-	// Initialize file-based storage
 	storage, err := roulette.NewFileStorage()
 	if err != nil {
 		fmt.Printf("Failed to initialize storage: %v\n", err)

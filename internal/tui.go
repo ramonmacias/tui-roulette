@@ -21,10 +21,17 @@ const (
 	ansiFgAccent2      = "\033[38;2;255;214;170m"
 	ansiFgDanger       = "\033[38;2;255;107;107m"
 	ansiFgSuccess      = "\033[38;2;122;214;163m"
-	ansiBgBase         = "\033[48;2;33;30;30m"
 	ansiBgSurface      = "\033[48;2;49;45;45m"
 	ansiBgSurface2     = "\033[48;2;64;59;59m"
 	minPanelInnerWidth = 60
+
+	initialMsgNoRoulettes   = "Create your first roulette to get started."
+	initialMsgWithRoulettes = "Browse your roulettes or create a new one."
+
+	infoMsgCreateRouletteInstructions = "Type a roulette name and press enter."
+	infoMsgAddParticipantIntoRoulette = "Add participants to %s."
+
+	errMsgAddParticipantsWithoutRoulette = "Create a roulette before adding participants."
 )
 
 type focusArea int
@@ -78,8 +85,8 @@ type model struct {
 }
 
 // InitialModel builds the Bubble Tea model used by the roulette TUI.
+// It retrieves all the information present on the given storage.
 func InitialModel(storage Storage) tea.Model {
-	// Load roulettes from storage
 	roulettes := []*Roulette{}
 	if storage != nil {
 		if loaded, err := storage.Load(); err == nil {
@@ -87,10 +94,10 @@ func InitialModel(storage Storage) tea.Model {
 		}
 	}
 
-	infoMsg := "Create your first roulette to get started."
+	infoMsg := initialMsgNoRoulettes
 	screenMode := modeCreateRoulette
 	if len(roulettes) > 0 {
-		infoMsg = "Browse your roulettes or create a new one."
+		infoMsg = initialMsgWithRoulettes
 		screenMode = modeBrowse
 	}
 
@@ -100,19 +107,15 @@ func InitialModel(storage Storage) tea.Model {
 	}
 
 	return model{
-		roulettes:           roulettes,
-		selectedRoulette:    0,
-		selectedParticipant: 0,
-		createName:          "",
-		createMode:          ModeRepeatableWinners,
-		createMultiCount:    0,
-		lastWinners:         map[int]string{},
-		focus:               focusRoulettes,
-		mode:                screenMode,
-		infoMessage:         infoMsg,
-		storage:             storage,
-		planColor:           randomPlanColor(),
-		planRouletteID:      planRouletteID,
+		roulettes:      roulettes,
+		createMode:     ModeRepeatableWinners,
+		lastWinners:    map[int]string{},
+		focus:          focusRoulettes,
+		mode:           screenMode,
+		infoMessage:    infoMsg,
+		storage:        storage,
+		planColor:      randomPlanColor(),
+		planRouletteID: planRouletteID,
 	}
 }
 
@@ -137,31 +140,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "ctrl+c":
 			return m, tea.Quit
-		}
-
-		if key == "q" && m.mode == modeBrowse {
-			return m, tea.Quit
+		case "q":
+			if m.mode == modeBrowse {
+				return m, tea.Quit
+			}
 		}
 
 		m.clearMessages()
 
-		if m.mode == modeBrowse && m.showSpinPopup {
-			var cmd tea.Cmd
-			m, cmd = m.updateSpinPopup(key)
-			return m, cmd
-		}
-
 		switch m.mode {
+		case modeBrowse:
+			if m.showSpinPopup {
+				return m.updateSpinPopup(key)
+			}
+			return m.updateBrowse(key)
 		case modeCreateRoulette:
 			m = m.updateCreateRoulette(key)
 		case modeCreateMultiWinnerCount:
 			m = m.updateCreateMultiWinnerCount(key)
 		case modeAddParticipant:
 			m = m.updateAddParticipant(key)
-		default:
-			var cmd tea.Cmd
-			m, cmd = m.updateBrowse(key)
-			return m, cmd
 		}
 	}
 
@@ -217,7 +215,7 @@ func (m *model) clearMessages() {
 }
 
 func (m model) currentRoulette() *Roulette {
-	if len(m.roulettes) == 0 || m.selectedRoulette < 0 || m.selectedRoulette >= len(m.roulettes) {
+	if len(m.roulettes) == 0 {
 		return nil
 	}
 
@@ -226,7 +224,7 @@ func (m model) currentRoulette() *Roulette {
 
 func (m model) currentParticipant() *Participant {
 	roulette := m.currentRoulette()
-	if roulette == nil || len(roulette.Participants()) == 0 || m.selectedParticipant < 0 || m.selectedParticipant >= len(roulette.Participants()) {
+	if roulette == nil || len(roulette.Participants()) == 0 {
 		return nil
 	}
 
@@ -242,28 +240,28 @@ func (m model) updateBrowse(key string) (model, tea.Cmd) {
 	case "n":
 		m.mode = modeCreateRoulette
 		m.input = ""
-		m.infoMessage = "Type a roulette name and press enter."
+		m.infoMessage = infoMsgCreateRouletteInstructions
 	case "a":
 		if m.currentRoulette() == nil {
-			m.errorMessage = "Create a roulette before adding participants."
+			m.errorMessage = errMsgAddParticipantsWithoutRoulette
 			return m, nil
 		}
 
 		m.mode = modeAddParticipant
 		m.input = ""
 		m.focus = focusParticipants
-		m.infoMessage = fmt.Sprintf("Add participants to %s.", m.currentRoulette().Name())
+		m.infoMessage = fmt.Sprintf(infoMsgAddParticipantIntoRoulette, m.currentRoulette().Name())
 	case "tab":
 		m.toggleFocus()
-	case "left", "h":
+	case "left":
 		m.focus = focusRoulettes
-	case "right", "l":
+	case "right":
 		if m.currentRoulette() != nil {
 			m.focus = focusParticipants
 		}
-	case "up", "k":
+	case "up":
 		m.moveSelection(-1)
-	case "down", "j":
+	case "down":
 		m.moveSelection(1)
 	case "s":
 		next, cmd := m.startSpinCurrentRoulette()
@@ -301,6 +299,108 @@ func (m model) updateSpinPopup(key string) (model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+}
+
+func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
+	r := m.currentRoulette()
+	if r == nil {
+		m.errorMessage = "Select or create a roulette before spinning."
+		return m, nil
+	}
+
+	participantsBeforeSpin := append([]Participant(nil), r.Candidates()...)
+	if len(participantsBeforeSpin) == 0 {
+		m.errorMessage = "cannot spin roulette without participants"
+		return m, nil
+	}
+
+	if r.Mode() == ModeMultiWinner {
+		r.Reset()
+		delete(m.lastWinners, m.selectedRoulette)
+	}
+
+	previousWinnerCount := len(r.Winners())
+	previousEliminatedCount := len(r.Eliminated())
+
+	if err := r.Spin(); err != nil {
+		if len(r.Winners()) == previousWinnerCount && len(r.Eliminated()) == previousEliminatedCount {
+			m.errorMessage = err.Error()
+			return m, nil
+		}
+
+		m.infoMessage = err.Error()
+	}
+
+	participants := participantsBeforeSpin
+	resultName := ""
+	resultIsWinner := false
+	var pendingWinners []string
+
+	// Winner was produced by this spin.
+	winners := r.Winners()
+	if len(winners) > previousWinnerCount {
+		resultIsWinner = true
+		if r.Mode() == ModeMultiWinner {
+			// Queue all winners for sequential animation.
+			for _, w := range winners[previousWinnerCount:] {
+				pendingWinners = append(pendingWinners, w.Name())
+			}
+			resultName = pendingWinners[0]
+			pendingWinners = pendingWinners[1:]
+		} else {
+			resultName = winners[len(winners)-1].Name()
+		}
+	}
+
+	// Elimination mode can produce an eliminated participant instead of a winner.
+	if resultName == "" && r.Mode() == ModeElimination {
+		eliminated := r.Eliminated()
+		if len(eliminated) > previousEliminatedCount {
+			resultName = eliminated[len(eliminated)-1].Name()
+		}
+	}
+
+	if resultName == "" {
+		m.errorMessage = "spin completed but no result was recorded"
+		return m, nil
+	}
+
+	winnerIndex := -1
+	for i, p := range participants {
+		if p.Name() == resultName {
+			winnerIndex = i
+			break
+		}
+	}
+
+	if winnerIndex < 0 {
+		m.errorMessage = "spin result not found in participants"
+		return m, nil
+	}
+
+	startIndex := rand.IntN(len(participants))
+	spins := rand.IntN(3) + 3
+	totalSteps := spins*len(participants) + ((winnerIndex - startIndex + len(participants)) % len(participants))
+	if totalSteps == 0 {
+		totalSteps = len(participants)
+	}
+
+	m.spinning = true
+	m.spinToken++
+	m.spinRouletteIndex = m.selectedRoulette
+	m.spinWinnerName = resultName
+	m.spinWinnerSlice = winnerIndex
+	m.spinPendingWinners = pendingWinners
+	m.spinParticipants = participantsBeforeSpin
+	m.spinCurrentSlice = startIndex
+	m.spinTotalSteps = totalSteps
+	m.spinStep = 0
+	m.spinVisibleWinners = previousWinnerCount
+	m.spinVisibleElim = previousEliminatedCount
+	m.spinOutcomeWinner = resultIsWinner
+	m.infoMessage = fmt.Sprintf("Spinning %s...", r.Name())
+
+	return m, spinTickCmd(m.spinToken, spinDelay(0, totalSteps))
 }
 
 func (m *model) toggleCurrentParticipant() {
@@ -598,108 +698,6 @@ func renderModeLabel(mode Mode, multiCount int) string {
 	}
 }
 
-func (m model) startSpinCurrentRoulette() (model, tea.Cmd) {
-	r := m.currentRoulette()
-	if r == nil {
-		m.errorMessage = "Select or create a roulette before spinning."
-		return m, nil
-	}
-
-	participantsBeforeSpin := append([]Participant(nil), r.Candidates()...)
-	if len(participantsBeforeSpin) == 0 {
-		m.errorMessage = "cannot spin roulette without participants"
-		return m, nil
-	}
-
-	if r.Mode() == ModeMultiWinner {
-		r.Reset()
-		delete(m.lastWinners, m.selectedRoulette)
-	}
-
-	previousWinnerCount := len(r.Winners())
-	previousEliminatedCount := len(r.Eliminated())
-
-	if err := r.Spin(); err != nil {
-		if len(r.Winners()) == previousWinnerCount && len(r.Eliminated()) == previousEliminatedCount {
-			m.errorMessage = err.Error()
-			return m, nil
-		}
-
-		m.infoMessage = err.Error()
-	}
-
-	participants := participantsBeforeSpin
-	resultName := ""
-	resultIsWinner := false
-	var pendingWinners []string
-
-	// Winner was produced by this spin.
-	winners := r.Winners()
-	if len(winners) > previousWinnerCount {
-		resultIsWinner = true
-		if r.Mode() == ModeMultiWinner {
-			// Queue all winners for sequential animation.
-			for _, w := range winners[previousWinnerCount:] {
-				pendingWinners = append(pendingWinners, w.Name())
-			}
-			resultName = pendingWinners[0]
-			pendingWinners = pendingWinners[1:]
-		} else {
-			resultName = winners[len(winners)-1].Name()
-		}
-	}
-
-	// Elimination mode can produce an eliminated participant instead of a winner.
-	if resultName == "" && r.Mode() == ModeElimination {
-		eliminated := r.Eliminated()
-		if len(eliminated) > previousEliminatedCount {
-			resultName = eliminated[len(eliminated)-1].Name()
-		}
-	}
-
-	if resultName == "" {
-		m.errorMessage = "spin completed but no result was recorded"
-		return m, nil
-	}
-
-	winnerIndex := -1
-	for i, p := range participants {
-		if p.Name() == resultName {
-			winnerIndex = i
-			break
-		}
-	}
-
-	if winnerIndex < 0 {
-		m.errorMessage = "spin result not found in participants"
-		return m, nil
-	}
-
-	startIndex := rand.IntN(len(participants))
-	spins := rand.IntN(3) + 3
-	totalSteps := spins*len(participants) + ((winnerIndex - startIndex + len(participants)) % len(participants))
-	if totalSteps == 0 {
-		totalSteps = len(participants)
-	}
-
-	m.spinning = true
-	m.spinToken++
-	m.spinRouletteIndex = m.selectedRoulette
-	m.spinWinnerName = resultName
-	m.spinWinnerSlice = winnerIndex
-	m.spinPendingWinners = pendingWinners
-	m.spinParticipants = participantsBeforeSpin
-	m.spinCurrentSlice = startIndex
-	m.spinTotalSteps = totalSteps
-	m.spinStep = 0
-	m.spinVisibleWinners = previousWinnerCount
-	m.spinVisibleElim = previousEliminatedCount
-	m.spinOutcomeWinner = resultIsWinner
-	m.infoMessage = fmt.Sprintf("Spinning %s...", r.Name())
-
-	return m, spinTickCmd(m.spinToken, spinDelay(0, totalSteps))
-}
-
 func (m model) advanceSpin() (model, tea.Cmd) {
 	if m.spinRouletteIndex < 0 || m.spinRouletteIndex >= len(m.roulettes) {
 		m.spinning = false
@@ -780,10 +778,6 @@ func (m model) advanceSpin() (model, tea.Cmd) {
 	}
 
 	return m, spinTickCmd(m.spinToken, spinDelay(m.spinStep, m.spinTotalSteps))
-}
-
-func (m model) renderWheel() string {
-	return m.renderWheelWithCanvas(64, 40)
 }
 
 func (m model) renderWheelWithCanvas(canvasWidth int, canvasHeight int) string {
@@ -977,24 +971,6 @@ func (m model) renderDashboard() string {
 	}
 
 	return s.String()
-}
-
-func (m model) ensurePlanColor() model {
-	r := m.currentRoulette()
-	if r == nil {
-		m.planRouletteID = ""
-		if m.planColor == "" {
-			m.planColor = randomPlanColor()
-		}
-		return m
-	}
-
-	if m.planRouletteID != r.ID() || m.planColor == "" {
-		m.planRouletteID = r.ID()
-		m.planColor = randomPlanColor()
-	}
-
-	return m
 }
 
 func (m *model) refreshPlanColor() {
